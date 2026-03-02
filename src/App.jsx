@@ -190,6 +190,18 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
               cursor: "pointer", fontSize: "15px", textAlign: "left"
             }}>{l}</button>
           ))}
+          {/* Theme toggle */}
+          <button onClick={() => setDark(d => !d)} style={{
+            background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+            border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
+            color: dark ? "#aaa" : "#555",
+            padding: "10px 16px", borderRadius: "8px", cursor: "pointer",
+            fontSize: "15px", textAlign: "left", display: "flex", alignItems: "center", gap: "10px"
+          }}>
+            <span>{dark ? "☀️" : "🌙"}</span>
+            <span>{dark ? "Switch to Light Mode" : "Switch to Dark Mode"}</span>
+          </button>
+
           {user ? (
             <>
               <button onClick={() => { setPage("dashboard"); setMenuOpen(false); }} style={{
@@ -197,8 +209,8 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
                 color: dark ? "#FFD700" : "#92600A", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "15px", textAlign: "left"
               }}>📊 Dashboard</button>
               <button onClick={onLogout} style={{
-                background: "transparent", border: "1px solid #333",
-                color: "#666", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "15px", textAlign: "left"
+                background: "transparent", border: dark ? "1px solid #333" : "1px solid #ddd",
+                color: dark ? "#666" : "#888", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "15px", textAlign: "left"
               }}>🚪 Logout</button>
             </>
           ) : (
