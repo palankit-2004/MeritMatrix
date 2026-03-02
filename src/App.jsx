@@ -320,8 +320,9 @@ function HeroSection({ setPage }) {
         }}>
           Crack Your{" "}
           <span style={{
-            background: dark ? "linear-gradient(135deg, #FFD700, #FF8C00)" : "linear-gradient(135deg, #C47A00, #E05000)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
+            background: "linear-gradient(135deg, #FFD700, #FF8C00)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            color: "transparent"
           }}>Dream Exam</span>
           <br />with Smart Practice
         </h1>
@@ -1542,61 +1543,75 @@ function ExamInterface({ setPage, activeTest }) {
 // PRICING PAGE
 function PricingPage({ setPage }) {
   const dark = useTheme();
-  const plans = [
-    { name: "Free", price: 0, period: "forever", features: ["3 free mock tests per exam","Basic performance stats","Question review","Mobile app access"], cta: "Get Started", highlight: false },
-    { name: "Pro", price: 299, period: "month", features: ["Unlimited mock tests","Sectional tests","PYQ papers","Advanced analytics","Live leaderboard","Priority support","Offline download"], cta: "Start Pro", highlight: true },
-    { name: "Annual", price: 1999, period: "year", features: ["Everything in Pro","All future exams included","Personalized study plan","Doubt solving","Performance reports","Save ₹1,589 vs monthly"], cta: "Best Value", highlight: false },
+  const features = [
+    { icon: "📝", title: "Unlimited Mock Tests", desc: "Full-length mock tests for all exams — no limits, no paywalls." },
+    { icon: "📖", title: "Sectional Practice", desc: "Subject-wise sectional tests to sharpen specific topics." },
+    { icon: "📅", title: "PYQ Papers", desc: "Previous year question papers with detailed solutions." },
+    { icon: "📊", title: "Advanced Analytics", desc: "Score, accuracy, subject breakdown, time analysis after every test." },
+    { icon: "🏆", title: "Live Leaderboard", desc: "Compete with other students and see your rank in real time." },
+    { icon: "📱", title: "Mobile Friendly", desc: "Fully optimized for phone and tablet — practice anywhere." },
   ];
   return (
-    <div style={{ padding: "80px 1rem 60px", maxWidth: "1100px", margin: "0 auto" }}>
-      <div style={{ textAlign: "center", marginBottom: "48px" }}>
-        <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(2rem,5vw,3rem)", color: dark ? "#fff" : "#111" }}>
-          Simple, Transparent Pricing
+    <div style={{ padding: "80px 1rem 80px", maxWidth: "900px", margin: "0 auto" }}>
+      {/* Hero */}
+      <div style={{ textAlign: "center", marginBottom: "56px" }}>
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: "8px",
+          background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
+          color: "#4ade80", padding: "6px 18px", borderRadius: "20px",
+          fontSize: "13px", fontWeight: 700, marginBottom: "20px"
+        }}>✦ 100% Free — No Credit Card Required</div>
+        <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(2rem,5vw,3.2rem)", color: dark ? "#fff" : "#111", marginBottom: "12px" }}>
+          Everything is Free.<br />
+          <span style={{ background: "linear-gradient(135deg, #FFD700, #FF8C00)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>No Hidden Charges.</span>
         </h1>
-        <p style={{ color: dark ? "#666" : "#777", fontSize: "16px", marginTop: "8px" }}>No hidden charges. Cancel anytime.</p>
+        <p style={{ color: dark ? "#666" : "#777", fontSize: "17px", lineHeight: 1.7, maxWidth: "560px", margin: "0 auto" }}>
+          MeritMatrix is completely free for all students. We believe every aspirant deserves quality practice — regardless of their budget.
+        </p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px" }}>
-        {plans.map(plan => (
-          <div key={plan.name} style={{
-            background: plan.highlight ? (dark ? "rgba(255,215,0,0.06)" : "rgba(255,215,0,0.08)") : (dark ? "rgba(255,255,255,0.03)" : "#fff"),
-            border: plan.highlight ? "1px solid rgba(255,215,0,0.4)" : (dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)"),
-            boxShadow: dark ? (plan.highlight ? "0 0 40px rgba(255,215,0,0.08)" : "none") : (plan.highlight ? "0 0 40px rgba(255,180,0,0.15)" : "0 2px 12px rgba(0,0,0,0.06)"),
-            borderRadius: "20px", padding: "32px", position: "relative",
-            boxShadow: plan.highlight ? "0 0 40px rgba(255,215,0,0.08)" : "none"
-          }}>
-            {plan.highlight && (
-              <div style={{
-                position: "absolute", top: -12, left: "50%", transform: "translateX(-50%)",
-                background: "linear-gradient(135deg, #FFD700, #FF8C00)",
-                color: "#000", padding: "4px 16px", borderRadius: "20px",
-                fontSize: "12px", fontWeight: 700, whiteSpace: "nowrap"
-              }}>Most Popular</div>
-            )}
-            <h3 style={{ color: plan.highlight ? "#E6A800" : (dark ? "#fff" : "#111"), fontSize: "1.3rem", fontWeight: 800, margin: "0 0 8px" }}>{plan.name}</h3>
-            <div style={{ marginBottom: "20px" }}>
-              <span style={{ color: dark ? "#fff" : "#111", fontSize: "2.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>
-                {plan.price === 0 ? "Free" : `₹${plan.price}`}
-              </span>
-              {plan.price > 0 && <span style={{ color: dark ? "#666" : "#888", fontSize: "14px" }}>/{plan.period}</span>}
+
+      {/* Big FREE card */}
+      <div style={{
+        background: dark ? "linear-gradient(135deg, rgba(255,215,0,0.07), rgba(255,140,0,0.04))" : "linear-gradient(135deg, rgba(255,215,0,0.1), rgba(255,140,0,0.06))",
+        border: "1.5px solid rgba(255,215,0,0.35)",
+        borderRadius: "24px", padding: "clamp(28px,5vw,48px)",
+        boxShadow: dark ? "0 0 60px rgba(255,215,0,0.06)" : "0 8px 40px rgba(255,180,0,0.12)",
+        marginBottom: "40px", textAlign: "center", position: "relative", overflow: "hidden"
+      }}>
+        <div style={{
+          position: "absolute", top: -20, right: -20, width: 160, height: 160,
+          background: "radial-gradient(circle, rgba(255,215,0,0.08), transparent 70%)",
+          borderRadius: "50%"
+        }} />
+        <div style={{ fontSize: "clamp(3.5rem,8vw,5.5rem)", fontWeight: 900, fontFamily: "'Sora',sans-serif", color: dark ? "#FFD700" : "#92600A", lineHeight: 1, marginBottom: "6px" }}>
+          ₹0
+        </div>
+        <div style={{ color: dark ? "#aaa" : "#666", fontSize: "15px", marginBottom: "24px" }}>Forever free • No registration fees • No subscription</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px", marginBottom: "28px", textAlign: "left" }}>
+          {features.map(f => (
+            <div key={f.title} style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 14px", background: dark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.7)", borderRadius: "10px" }}>
+              <span style={{ fontSize: "18px", flexShrink: 0 }}>{f.icon}</span>
+              <div>
+                <div style={{ color: dark ? "#fff" : "#111", fontSize: "13px", fontWeight: 700 }}>{f.title}</div>
+                <div style={{ color: dark ? "#666" : "#888", fontSize: "12px", lineHeight: 1.4, marginTop: "2px" }}>{f.desc}</div>
+              </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "28px" }}>
-              {plan.features.map(f => (
-                <div key={f} style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                  <span style={{ color: "#4ade80", flexShrink: 0 }}>✓</span>
-                  <span style={{ color: dark ? "#aaa" : "#555", fontSize: "14px" }}>{f}</span>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => setPage("auth")} style={{
-              width: "100%",
-              background: plan.highlight ? "linear-gradient(135deg, #FFD700, #FF8C00)" : "rgba(255,255,255,0.08)",
-              border: plan.highlight ? "none" : "1px solid rgba(255,255,255,0.15)",
-              color: plan.highlight ? "#000" : (dark ? "#fff" : "#333"),
-              padding: "14px", borderRadius: "10px", cursor: "pointer",
-              fontSize: "15px", fontWeight: 700
-            }}>{plan.cta}</button>
-          </div>
-        ))}
+          ))}
+        </div>
+        <button onClick={() => setPage("auth")} style={{
+          background: "linear-gradient(135deg, #FFD700, #FF8C00)",
+          border: "none", color: "#000", padding: "16px 48px",
+          borderRadius: "12px", cursor: "pointer", fontSize: "17px", fontWeight: 800,
+          boxShadow: "0 4px 20px rgba(255,215,0,0.3)"
+        }}>Start Practicing Free →</button>
+      </div>
+
+      {/* Bottom note */}
+      <div style={{ textAlign: "center" }}>
+        <p style={{ color: dark ? "#555" : "#999", fontSize: "14px", lineHeight: 1.8 }}>
+          🎯 Built for Odisha's defence & government exam aspirants.<br />
+          Currently free for all students — start practicing today.
+        </p>
       </div>
     </div>
   );
