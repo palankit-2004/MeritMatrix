@@ -618,21 +618,32 @@ function AuthPage({ setPage, onLogin }) {
     setLoading(true); setError("");
     try {
       if (mode === "signup") {
-        // Signup — Supabase sends verification email via Resend
         const data = await supabaseAuth("signup", {
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin + "/auth" }
+          email, password,
+          options: { emailRedirectTo: window.location.origin }
         });
         if (data.error) throw new Error(data.error.message || "Signup failed");
-        // Show "check your email" screen
-        setVerifyEmail(email);
+
+        // If confirm email is OFF — Supabase returns access_token immediately
+        if (data.access_token) {
+          localStorage.setItem("mm_session", JSON.stringify(data));
+          let isAdmin = false;
+          try {
+            const roles = await supabaseRequest(`/roles?user_id=eq.${data.user?.id}&select=role`, { token: data.access_token });
+            isAdmin = roles?.some(r => r.role === "admin") || false;
+          } catch {}
+          onLogin({ ...data.user, token: data.access_token, isAdmin });
+          setPage("dashboard");
+        } else {
+          // Confirm email is ON — show check email screen
+          setVerifyEmail(email);
+        }
         setLoading(false);
         return;
       } else {
         // Login
         const data = await supabaseAuth("token?grant_type=password", { email, password });
-        if (data.error || data.error_description) throw new Error(data.error_description || data.error?.message || "Login failed");
+        if (data.error || data.error_description) throw new Error(data.error_description || data.error?.message || "Invalid email or password");
         localStorage.setItem("mm_session", JSON.stringify(data));
         let isAdmin = false;
         try {
@@ -1167,6 +1178,262 @@ function PricingPage({ setPage }) {
   );
 }
 
+// ADMIN EXAMS COMPONENT
+function AdminExams({ user }) {
+  const [exams, setExams] = useState([]);
+  const [orgs, setOrgs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editExam, setEditExam] = useState(null);
+  const [expandedExam, setExpandedExam] = useState(null);
+  const [tests, setTests] = useState({});
+  const [showTestForm, setShowTestForm] = useState(null);
+  const [editTest, setEditTest] = useState(null);
+  const [msg, setMsg] = useState("");
+
+  const emptyExam = { name: "", organization_id: "", description: "", is_published: false, is_free: false };
+  const emptyTest = { name: "", test_type: "mock", duration_minutes: 60, total_marks: 100, negative_value: 0.25, instructions: "", is_published: false };
+  const [examForm, setExamForm] = useState(emptyExam);
+  const [testForm, setTestForm] = useState(emptyTest);
+
+  const loadExams = () => {
+    setLoading(true);
+    supabaseRequest("/exams?select=*,organizations(name,color)&order=created_at.desc", { token: user.token })
+      .then(data => { setExams(data || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadExams();
+    supabaseRequest("/organizations?select=*&order=name.asc", { token: user.token })
+      .then(data => setOrgs(data || [])).catch(() => {});
+  }, []);
+
+  const loadTests = async (examId) => {
+    const data = await supabaseRequest(`/tests?exam_id=eq.${examId}&order=created_at.asc&select=*`, { token: user.token });
+    setTests(prev => ({ ...prev, [examId]: data || [] }));
+  };
+
+  const saveExam = async () => {
+    try {
+      if (editExam) {
+        await supabaseRequest(`/exams?id=eq.${editExam.id}`, { method: "PATCH", body: examForm, token: user.token });
+        setMsg("✅ Exam updated!");
+      } else {
+        await supabaseRequest("/exams", { method: "POST", body: examForm, token: user.token });
+        setMsg("✅ Exam created!");
+      }
+      setShowForm(false); setEditExam(null); setExamForm(emptyExam); loadExams();
+    } catch(e) { setMsg("❌ " + e.message); }
+  };
+
+  const deleteExam = async (id) => {
+    if (!confirm("Delete this exam and all its tests?")) return;
+    await supabaseRequest(`/exams?id=eq.${id}`, { method: "DELETE", token: user.token });
+    loadExams();
+  };
+
+  const saveTest = async (examId) => {
+    try {
+      const body = { ...testForm, exam_id: examId };
+      if (editTest) {
+        await supabaseRequest(`/tests?id=eq.${editTest.id}`, { method: "PATCH", body: testForm, token: user.token });
+      } else {
+        await supabaseRequest("/tests", { method: "POST", body, token: user.token });
+      }
+      setShowTestForm(null); setEditTest(null); setTestForm(emptyTest); loadTests(examId);
+      setMsg("✅ Test saved!");
+    } catch(e) { setMsg("❌ " + e.message); }
+  };
+
+  const deleteTest = async (testId, examId) => {
+    if (!confirm("Delete this test?")) return;
+    await supabaseRequest(`/tests?id=eq.${testId}`, { method: "DELETE", token: user.token });
+    loadTests(examId);
+  };
+
+  const inputS = { width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
+
+  return (
+    <div style={{ maxWidth: "900px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
+        <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Exams & Tests</h1>
+        <button onClick={() => { setShowForm(true); setEditExam(null); setExamForm(emptyExam); }} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>+ New Exam</button>
+      </div>
+
+      {msg && <div style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "14px" }}>{msg}</div>}
+
+      {/* Exam Form */}
+      {showForm && (
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "14px", padding: "20px", marginBottom: "20px" }}>
+          <h3 style={{ color: "#FFD700", marginBottom: "16px" }}>{editExam ? "Edit Exam" : "New Exam"}</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+            <div>
+              <label style={{ color: "#aaa", fontSize: "12px" }}>Exam Name *</label>
+              <input value={examForm.name} onChange={e => setExamForm(p => ({...p, name: e.target.value}))} style={inputS} placeholder="e.g. Constable Recruitment 2025" />
+            </div>
+            <div>
+              <label style={{ color: "#aaa", fontSize: "12px" }}>Organization</label>
+              <select value={examForm.organization_id} onChange={e => setExamForm(p => ({...p, organization_id: e.target.value}))}
+                style={{ ...inputS, background: "#1a1a2e" }}>
+                <option value="">-- Select Organization --</option>
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ color: "#aaa", fontSize: "12px" }}>Description</label>
+            <input value={examForm.description} onChange={e => setExamForm(p => ({...p, description: e.target.value}))} style={inputS} placeholder="Short description" />
+          </div>
+          <div style={{ display: "flex", gap: "20px", marginBottom: "16px" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "14px", cursor: "pointer" }}>
+              <input type="checkbox" checked={examForm.is_published} onChange={e => setExamForm(p => ({...p, is_published: e.target.checked}))} /> Published
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "14px", cursor: "pointer" }}>
+              <input type="checkbox" checked={examForm.is_free} onChange={e => setExamForm(p => ({...p, is_free: e.target.checked}))} /> Free
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={saveExam} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>Save</button>
+            <button onClick={() => { setShowForm(false); setEditExam(null); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#aaa", padding: "10px 20px", borderRadius: "8px", cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <div style={{ color: "#666", padding: "20px" }}>Loading...</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {exams.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "40px" }}>No exams yet. Create your first exam!</div>}
+          {exams.map(exam => (
+            <div key={exam.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", overflow: "hidden" }}>
+              <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <button onClick={() => { const id = exam.id; setExpandedExam(expandedExam === id ? null : id); if (expandedExam !== id) loadTests(id); }} style={{ background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "14px" }}>
+                    {expandedExam === exam.id ? "▼" : "▶"}
+                  </button>
+                  <div>
+                    <div style={{ color: "#fff", fontWeight: 600 }}>{exam.name}</div>
+                    <div style={{ color: "#555", fontSize: "12px" }}>{exam.organizations?.name || "No org"} • {exam.is_published ? <span style={{ color: "#4ade80" }}>Published</span> : <span style={{ color: "#ff6b6b" }}>Draft</span>} {exam.is_free && <span style={{ color: "#4ade80" }}> • Free</span>}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => { setEditExam(exam); setExamForm({ name: exam.name, organization_id: exam.organization_id || "", description: exam.description || "", is_published: exam.is_published, is_free: exam.is_free }); setShowForm(true); }} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Edit</button>
+                  <button onClick={() => deleteExam(exam.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Delete</button>
+                </div>
+              </div>
+
+              {/* Tests section */}
+              {expandedExam === exam.id && (
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "16px 20px", background: "rgba(0,0,0,0.2)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                    <div style={{ color: "#aaa", fontSize: "13px", fontWeight: 600 }}>Tests</div>
+                    <button onClick={() => { setShowTestForm(exam.id); setEditTest(null); setTestForm(emptyTest); }} style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", padding: "5px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>+ Add Test</button>
+                  </div>
+
+                  {/* Test Form */}
+                  {showTestForm === exam.id && (
+                    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "10px", padding: "16px", marginBottom: "12px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Test Name *</label><input value={testForm.name} onChange={e => setTestForm(p => ({...p, name: e.target.value}))} style={inputS} placeholder="e.g. Mathematics Practice Set 1" /></div>
+                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Type</label>
+                          <select value={testForm.test_type} onChange={e => setTestForm(p => ({...p, test_type: e.target.value}))} style={{ ...inputS, background: "#1a1a2e" }}>
+                            <option value="mock">Mock Test</option>
+                            <option value="sectional">Sectional Test</option>
+                            <option value="pyq">PYQ</option>
+                          </select>
+                        </div>
+                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Duration (mins)</label><input type="number" value={testForm.duration_minutes} onChange={e => setTestForm(p => ({...p, duration_minutes: parseInt(e.target.value)}))} style={inputS} /></div>
+                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Total Marks</label><input type="number" value={testForm.total_marks} onChange={e => setTestForm(p => ({...p, total_marks: parseInt(e.target.value)}))} style={inputS} /></div>
+                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Negative Marks</label><input type="number" step="0.25" value={testForm.negative_value} onChange={e => setTestForm(p => ({...p, negative_value: parseFloat(e.target.value)}))} style={inputS} /></div>
+                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Instructions</label><input value={testForm.instructions} onChange={e => setTestForm(p => ({...p, instructions: e.target.value}))} style={inputS} placeholder="Optional" /></div>
+                      </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "13px", cursor: "pointer", marginBottom: "12px" }}>
+                        <input type="checkbox" checked={testForm.is_published} onChange={e => setTestForm(p => ({...p, is_published: e.target.checked}))} /> Published
+                      </label>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button onClick={() => saveTest(exam.id)} style={{ background: "linear-gradient(135deg,#4ade80,#22c55e)", border: "none", color: "#000", padding: "8px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>Save Test</button>
+                        <button onClick={() => { setShowTestForm(null); setEditTest(null); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {(tests[exam.id] || []).length === 0 ? (
+                    <div style={{ color: "#444", fontSize: "13px", padding: "8px 0" }}>No tests yet.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {(tests[exam.id] || []).map(test => (
+                        <div key={test.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                          <div>
+                            <div style={{ color: "#ddd", fontSize: "13px", fontWeight: 600 }}>{test.name}</div>
+                            <div style={{ color: "#555", fontSize: "11px" }}>{test.test_type} • {test.duration_minutes}min • {test.total_marks}marks • {test.is_published ? <span style={{ color: "#4ade80" }}>Published</span> : <span style={{ color: "#ff6b6b" }}>Draft</span>}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button onClick={() => { setEditTest(test); setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published }); setShowTestForm(exam.id); }} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.2)", color: "#FFD700", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Edit</button>
+                            <button onClick={() => deleteTest(test.id, exam.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.2)", color: "#ff6b6b", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Del</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ADMIN USERS COMPONENT
+function AdminUsers({ user }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    supabaseRequest("/profiles?select=*&order=created_at.desc&limit=100", { token: user.token })
+      .then(data => { setUsers(data || []); setLoading(false); })
+      .catch(() => {
+        // Try auth users endpoint as fallback
+        supabaseRequest("/users?select=*&order=created_at.desc&limit=100", { token: user.token })
+          .then(data => { setUsers(data || []); setLoading(false); })
+          .catch(() => setLoading(false));
+      });
+  }, []);
+
+  const filtered = users.filter(u => u.email?.toLowerCase().includes(search.toLowerCase()) || u.id?.includes(search));
+
+  return (
+    <div style={{ maxWidth: "900px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
+        <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Users</h1>
+        <div style={{ color: "#666", fontSize: "13px" }}>Total: {users.length}</div>
+      </div>
+
+      <input
+        placeholder="Search by email or ID..."
+        value={search} onChange={e => setSearch(e.target.value)}
+        style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" }}
+      />
+
+      {loading ? <div style={{ color: "#666" }}>Loading users...</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {filtered.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "40px" }}>No users found.</div>}
+          {filtered.map(u => (
+            <div key={u.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "10px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <div>
+                <div style={{ color: "#fff", fontWeight: 600, fontSize: "14px" }}>{u.email || "No email"}</div>
+                <div style={{ color: "#555", fontSize: "11px", fontFamily: "monospace" }}>{u.id}</div>
+              </div>
+              <div style={{ color: "#555", fontSize: "12px" }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : ""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ADMIN PANEL
 function AdminPanel({ user }) {
   const [activeSection, setActiveSection] = useState("overview");
@@ -1362,12 +1629,8 @@ function AdminPanel({ user }) {
           </div>
         )}
 
-        {(activeSection === "exams" || activeSection === "users") && (
-          <div>
-            <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "16px", textTransform: "capitalize" }}>{activeSection}</h1>
-            <p style={{ color: "#666" }}>Connect to Supabase to manage {activeSection}. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.</p>
-          </div>
-        )}
+        {activeSection === "exams" && <AdminExams user={user} />}
+        {activeSection === "users" && <AdminUsers user={user} />}
       </div>
     </div>
   );
