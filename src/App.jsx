@@ -64,20 +64,6 @@ const LOGOS_CONFIG = [
 ];
 
 // ============================================================
-// EXAM DATA CONFIG
-// ============================================================
-const EXAMS_CONFIG = [
-  { id: 1, org: "Odisha Police", name: "Constable Recruitment", logo: "odishapolice.webp", color: "#0033a0", tests: 45, tag: "Trending" },
-  { id: 2, org: "Indian Army", name: "Agniveer GD", logo: "indianarmy.webp", color: "#cc0000", tests: 60, tag: "Popular" },
-  { id: 3, org: "SSC GD", name: "SSC GD Constable", logo: "crpf.webp", color: "#2d5a27", tests: 80, tag: "Hot" },
-  { id: 4, org: "OSSSC", name: "RI / ARI / Amin", logo: "odishashashan.webp", color: "#555", tests: 35, tag: "New" },
-  { id: 5, org: "Indian Navy", name: "Agniveer SSR / MR", logo: "indiannavy.webp", color: "#1a3a6b", tests: 50, tag: "Popular" },
-  { id: 6, org: "Indian Air Force", name: "Agniveer Vayu", logo: "iaf.webp", color: "#0a6ab5", tests: 55, tag: "Trending" },
-  { id: 7, org: "CISF", name: "Constable / HC", logo: "cisf.webp", color: "#8b0000", tests: 30, tag: "" },
-  { id: 8, org: "BSF", name: "GD Constable", logo: "bsf.webp", color: "#003399", tests: 28, tag: "" },
-];
-
-// ============================================================
 // UTILITY HOOKS
 // ============================================================
 function useLocalStorage(key, initial) {
@@ -366,7 +352,7 @@ function HeroSection({ setPage }) {
           marginTop: "60px", display: "flex", gap: "24px",
           justifyContent: "center", flexWrap: "wrap"
         }}>
-          {[["10+","Exam Categories"],["500+","Practice Tests"],["Live","Leaderboard"]].map(([n,l]) => (
+          {[["10+","Exam Categories"],["100%","Free Forever"],["Live","Leaderboard"]].map(([n,l]) => (
             <div key={l} style={{
               background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
               border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
@@ -634,12 +620,13 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
 // AUTH PAGE — with email verification flow
 function AuthPage({ setPage, onLogin }) {
   const dark = useTheme();
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [verifyEmail, setVerifyEmail] = useState(""); // show "check email" screen
+  const [resetSent, setResetSent] = useState(false);
 
   // On mount: check if user landed back from email verification link
   useEffect(() => {
@@ -722,6 +709,26 @@ function AuthPage({ setPage, onLogin }) {
     } finally { setLoading(false); }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email) { setError("Enter your email address"); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ email, options: { redirectTo: window.location.origin } }),
+      });
+      if (res.ok || res.status === 200) {
+        setResetSent(true);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.message || "Failed to send reset email");
+      }
+    } catch(e) {
+      setError(e.message);
+    } finally { setLoading(false); }
+  };
+
   const inputStyle = {
     width: "100%",
     background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
@@ -773,6 +780,40 @@ function AuthPage({ setPage, onLogin }) {
           >
             Back to Sign In
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Forgot password screen ──
+  if (mode === "forgot") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 1rem 40px",
+        background: dark ? "radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.06) 0%, transparent 60%)" : "radial-gradient(ellipse at 50% 0%, rgba(255,180,0,0.08) 0%, transparent 60%)" }}>
+        <div style={{ width: "100%", maxWidth: "420px", background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)", boxShadow: dark ? "none" : "0 8px 40px rgba(0,0,0,0.1)", borderRadius: "20px", padding: "clamp(24px,5vw,40px)" }}>
+          <div style={{ textAlign: "center", marginBottom: "24px" }}>
+            <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>🔑</div>
+            <h2 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0 }}>Reset Password</h2>
+            <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginTop: "6px" }}>
+              {resetSent ? "Check your email for the reset link." : "Enter your email to receive a password reset link."}
+            </p>
+          </div>
+          {resetSent ? (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📧</div>
+              <p style={{ color: dark ? "#aaa" : "#666", fontSize: "14px", marginBottom: "20px" }}>Reset link sent to <strong>{email}</strong>. Check your inbox and spam folder.</p>
+              <button onClick={() => { setMode("login"); setResetSent(false); setError(""); }} style={{ width: "100%", background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "13px", borderRadius: "10px", cursor: "pointer", fontSize: "15px", fontWeight: 700 }}>Back to Sign In</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {error && <div style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", padding: "10px 14px", borderRadius: "8px", fontSize: "14px" }}>{error}</div>}
+              <input type="email" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleForgotPassword()} style={inputStyle} />
+              <button onClick={handleForgotPassword} disabled={loading} style={{ width: "100%", background: loading ? "#555" : "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "14px", borderRadius: "10px", cursor: loading ? "not-allowed" : "pointer", fontSize: "16px", fontWeight: 700 }}>
+                {loading ? "Sending..." : "Send Reset Link →"}
+              </button>
+              <button onClick={() => { setMode("login"); setError(""); }} style={{ background: "transparent", border: "none", color: dark ? "#666" : "#555", cursor: "pointer", fontSize: "14px", padding: "4px" }}>← Back to Sign In</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -846,6 +887,12 @@ function AuthPage({ setPage, onLogin }) {
           }}>
             {mode === "login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </button>
+          {mode === "login" && (
+            <button onClick={() => { setMode("forgot"); setError(""); }} style={{
+              background: "transparent", border: "none", color: dark ? "#555" : "#999",
+              cursor: "pointer", fontSize: "13px", padding: "2px"
+            }}>Forgot password?</button>
+          )}
         </div>
 
         <p style={{ color: dark ? "#444" : "#888", fontSize: "12px", textAlign: "center", marginTop: "20px" }}>
@@ -888,9 +935,9 @@ function DashboardPage({ user, setPage }) {
       }}>
         {[
           ["📝 Tests Taken", totalAttempts, "#FFD700"],
-          ["🎯 Avg Score", `${avgScore}%`, "#4ade80"],
-          ["🏆 Rank", "—", "#818cf8"],
-          ["⚡ Streak", "0 days", "#fb923c"],
+          ["🎯 Avg Score", totalAttempts ? `${avgScore}%` : "—", "#4ade80"],
+          ["✅ Best Score", attempts.length ? `${Math.max(...attempts.map(a => Math.round(a.score/a.total_marks*100)))}%` : "—", "#818cf8"],
+          ["📅 This Month", attempts.filter(a => new Date(a.created_at).getMonth() === new Date().getMonth()).length, "#fb923c"],
         ].map(([l,v,c]) => (
           <div key={l} style={{
             background: dark ? "rgba(255,255,255,0.04)" : "#fff",
@@ -913,16 +960,16 @@ function DashboardPage({ user, setPage }) {
             border: "none", color: "#000", padding: "12px 24px",
             borderRadius: "10px", cursor: "pointer", fontSize: "14px", fontWeight: 700
           }}>Browse Exams →</button>
-          <button style={{
+          <button onClick={() => { const el = document.getElementById("recent-attempts"); if(el) el.scrollIntoView({ behavior: "smooth" }); }} style={{
             background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
             color: dark ? "#fff" : "#333", padding: "12px 24px", borderRadius: "10px", cursor: "pointer", fontSize: "14px"
-          }}>View Results</button>
+          }}>View Results ↓</button>
         </div>
       </div>
 
       {/* Recent Attempts */}
       <div>
-        <h2 style={{ color: dark ? "#aaa" : "#888", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Recent Attempts</h2>
+        <h2 id="recent-attempts" style={{ color: dark ? "#aaa" : "#888", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Recent Attempts</h2>
         {loading ? (
           <div style={{ color: "#666", padding: "20px 0" }}>Loading...</div>
         ) : attempts.length === 0 ? (
@@ -1015,7 +1062,7 @@ function ExamInterface({ setPage, activeTest }) {
 
   const TOTAL = questions.length;
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (submitted) return;
     clearInterval(timerRef.current);
     let s = 0;
@@ -1023,10 +1070,32 @@ function ExamInterface({ setPage, activeTest }) {
       if (answers[q.id] === q.correct) s += q.marks;
       else if (answers[q.id] !== undefined) s -= q.negative;
     });
-    setScore(Math.max(0, parseFloat(s.toFixed(2))));
+    const finalScore = Math.max(0, parseFloat(s.toFixed(2)));
+    const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
+    setScore(finalScore);
     setSubmitted(true);
     setShowPalette(false);
-  }, [answers, submitted, questions]);
+    // Save attempt to Supabase
+    if (user?.id && activeTest?.id) {
+      try {
+        await supabaseRequest("/attempts", {
+          method: "POST",
+          body: {
+            user_id: user.id,
+            test_id: activeTest.id,
+            score: finalScore,
+            total_marks: totalMarks,
+            time_taken: DURATION - timeLeft,
+            answers: answers,
+          },
+          token: user.token,
+          prefer: "return=minimal",
+        });
+      } catch(e) {
+        console.warn("Could not save attempt:", e.message);
+      }
+    }
+  }, [answers, submitted, questions, user, activeTest, timeLeft, DURATION]);
 
   useEffect(() => {
     if (loading || loadError) return;
@@ -1844,13 +1913,17 @@ function AdminUsers({ user }) {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    supabaseRequest("/profiles?select=*&order=created_at.desc&limit=100", { token: user.token })
-      .then(data => { setUsers(data || []); setLoading(false); })
+    // profiles table is a public mirror of auth.users created by a Supabase trigger
+    supabaseRequest("/profiles?select=id,email,full_name,created_at&order=created_at.desc&limit=200", { token: user.token })
+      .then(data => {
+        setUsers(data || []);
+        setLoading(false);
+      })
       .catch(() => {
-        // Try auth users endpoint as fallback
-        supabaseRequest("/users?select=*&order=created_at.desc&limit=100", { token: user.token })
+        // Fallback: try a custom auth_users view if profiles doesn't exist
+        supabaseRequest("/auth_users?select=id,email,created_at&order=created_at.desc&limit=200", { token: user.token })
           .then(data => { setUsers(data || []); setLoading(false); })
-          .catch(() => setLoading(false));
+          .catch(() => { setUsers([]); setLoading(false); });
       });
   }, []);
 
@@ -1897,6 +1970,17 @@ function AdminPanel({ user }) {
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
 
+  const [availableTests, setAvailableTests] = useState([]);
+  const [selectedTestId, setSelectedTestId] = useState("");
+
+  useEffect(() => {
+    if (user?.isAdmin) {
+      supabaseRequest("/tests?select=id,name,exams(name)&order=created_at.desc", { token: user.token })
+        .then(data => setAvailableTests(data || []))
+        .catch(() => {});
+    }
+  }, [user]);
+
   if (!user?.isAdmin) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 1rem" }}>
@@ -1909,10 +1993,28 @@ function AdminPanel({ user }) {
     );
   }
 
+  // Proper CSV parser: handles commas inside quoted fields, escaped quotes
+  const parseCSVLine = (line) => {
+    const result = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim()); current = "";
+      } else { current += ch; }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
   const parseCSV = (text) => {
-    const lines = text.trim().split("\n");
+    const lines = text.trim().split("\n").filter(l => l.trim());
     if (lines.length < 2) { setCsvError("CSV must have header + at least 1 row"); return []; }
-    const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/"/g,""));
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/"/g,"").trim());
     const required = ["question_text","option_a","option_b","option_c","option_d","correct_answer","marks"];
     const missing = required.filter(r => !headers.includes(r));
     if (missing.length) { setCsvError(`Missing columns: ${missing.join(", ")}`); return []; }
@@ -1921,9 +2023,9 @@ function AdminPanel({ user }) {
     const errors = [];
     lines.slice(1).forEach((line, i) => {
       if (!line.trim()) return;
-      const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g,""));
+      const vals = parseCSVLine(line);
       const row = {};
-      headers.forEach((h, idx) => { row[h] = vals[idx] || ""; });
+      headers.forEach((h, idx) => { row[h] = (vals[idx] || "").replace(/^"|"$/g, "").trim(); });
       if (!row.question_text) { errors.push(`Row ${i+2}: Empty question`); return; }
       if (!["a","b","c","d"].includes(row.correct_answer?.toLowerCase())) {
         errors.push(`Row ${i+2}: correct_answer must be a/b/c/d`); return;
@@ -1944,6 +2046,7 @@ function AdminPanel({ user }) {
   const handleBulkUpload = async () => {
     const rows = parseCSV(csvContent);
     if (!rows.length || csvError) return;
+    if (!selectedTestId) { setUploadMsg("❌ Please select a test to link these questions to."); return; }
     setUploading(true); setUploadMsg("");
     try {
       const questions = rows.map(r => ({
@@ -1955,12 +2058,13 @@ function AdminPanel({ user }) {
         negative_marks: parseFloat(r.negative_marks) || 0,
         subject: r.subject || "General",
         explanation: r.explanation || "",
+        test_id: selectedTestId,
       }));
       await supabaseRequest("/questions", {
         method: "POST", body: questions, token: user.token,
         prefer: "return=minimal"
       });
-      setUploadMsg(`✅ ${questions.length} questions uploaded successfully!`);
+      setUploadMsg(`✅ ${questions.length} questions uploaded and linked to selected test!`);
       setCsvContent(""); setCsvPreview([]);
     } catch(e) {
       setUploadMsg(`❌ Upload failed: ${e.message}`);
@@ -1969,7 +2073,16 @@ function AdminPanel({ user }) {
 
   const sections = ["overview","questions","exams","users"];
   return (
-    <div style={{ padding: "60px 0 0", minHeight: "100vh", display: "flex" }}>
+    <div style={{ padding: "60px 0 0", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      {/* Mobile section switcher — shown only on mobile */}
+      <div style={{ display: "block", padding: "12px 16px", borderBottom: "1px solid rgba(255,50,50,0.15)" }} className="admin-mobile-nav">
+        <select value={activeSection} onChange={e => setActiveSection(e.target.value)}
+          style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "#fff", border: dark ? "1px solid rgba(255,50,50,0.3)" : "1px solid rgba(255,50,50,0.3)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none" }}>
+          {sections.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", flex: 1 }}>
       {/* Sidebar */}
       <div style={{
         width: "200px", flexShrink: 0,
@@ -2007,7 +2120,20 @@ function AdminPanel({ user }) {
 
         {activeSection === "questions" && (
           <div style={{ maxWidth: "800px" }}>
-            <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "24px" }}>Question Upload</h1>
+            <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "8px" }}>Bulk Upload Questions</h1>
+            <p style={{ color: "#666", marginBottom: "20px", fontSize: "14px" }}>Upload questions via CSV and link them to a specific test.</p>
+
+            {/* Test selector */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ color: dark ? "#aaa" : "#666", fontSize: "13px", display: "block", marginBottom: "6px", fontWeight: 600 }}>Link to Test <span style={{color:"#ff6b6b"}}>*</span></label>
+              <select value={selectedTestId} onChange={e => setSelectedTestId(e.target.value)} style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" }}>
+                <option value="">— Select a test to link questions to —</option>
+                {availableTests.map(t => (
+                  <option key={t.id} value={t.id}>{t.exams?.name ? `${t.exams.name} › ` : ""}{t.name}</option>
+                ))}
+              </select>
+              {availableTests.length === 0 && <p style={{ color: "#888", fontSize: "12px", marginTop: "4px" }}>No tests found. Create a test first in the Exams tab.</p>}
+            </div>
 
             {/* CSV Template Download hint */}
             <div style={{
@@ -2086,6 +2212,7 @@ function AdminPanel({ user }) {
         {activeSection === "exams" && <AdminExams user={user} />}
         {activeSection === "users" && <AdminUsers user={user} />}
       </div>
+      </div>{/* close flex row */}
     </div>
   );
 }
@@ -2161,7 +2288,7 @@ function Footer({ setPage }) {
           ))}
         </div>
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "20px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
-          <span style={{ color: dark ? "#444" : "#aaa", fontSize: "13px" }}>© 2024 MeritMatrix. All rights reserved.</span>
+          <span style={{ color: dark ? "#444" : "#aaa", fontSize: "13px" }}>© 2025 MeritMatrix. All rights reserved.</span>
           <span style={{ color: dark ? "#444" : "#aaa", fontSize: "13px" }}>Built for Odisha's aspirants 🇮🇳</span>
         </div>
       </div>
@@ -2197,6 +2324,7 @@ export default function App() {
     const hash = window.location.hash;
     const params = new URLSearchParams(hash.replace("#", "?"));
     const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
     const type = params.get("type");
 
     if (accessToken && (type === "signup" || type === "magiclink" || type === "recovery")) {
@@ -2207,7 +2335,7 @@ export default function App() {
           });
           const userData = await res.json();
           if (userData?.id) {
-            const sessionData = { access_token: accessToken, user: userData };
+            const sessionData = { access_token: accessToken, refresh_token: refreshToken, user: userData };
             localStorage.setItem("mm_session", JSON.stringify(sessionData));
             let isAdmin = false;
             try {
@@ -2228,7 +2356,32 @@ export default function App() {
       try {
         const s = JSON.parse(session);
         if (s?.user && s?.access_token) {
-          setUser({ ...s.user, token: s.access_token, isAdmin: false });
+          // Try to refresh token silently; fall back to stored token if refresh fails
+          (async () => {
+            let token = s.access_token;
+            let userData = s.user;
+            try {
+              if (s.refresh_token) {
+                const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+                  method: "POST",
+                  headers: { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+                  body: JSON.stringify({ refresh_token: s.refresh_token }),
+                });
+                const refreshed = await res.json();
+                if (refreshed?.access_token) {
+                  token = refreshed.access_token;
+                  userData = refreshed.user || userData;
+                  localStorage.setItem("mm_session", JSON.stringify({ ...refreshed, user: userData }));
+                }
+              }
+            } catch {}
+            let isAdmin = false;
+            try {
+              const roles = await supabaseRequest("/roles?user_id=eq." + userData.id + "&select=role", { token });
+              isAdmin = roles?.some(r => r.role === "admin") || false;
+            } catch {}
+            setUser({ ...userData, token, isAdmin });
+          })();
         }
       } catch {}
     }
@@ -2244,6 +2397,21 @@ export default function App() {
 
   const showNav = page !== "exam-interface";
   const showFooter = !["exam-interface","exam-detail","admin","dashboard","auth"].includes(page);
+
+  // Dynamic page title
+  useEffect(() => {
+    const titles = {
+      home: "MeritMatrix — Odisha's #1 Defence Mock Test Platform",
+      exams: "All Exams — MeritMatrix",
+      pricing: "Pricing — MeritMatrix",
+      auth: "Sign In — MeritMatrix",
+      dashboard: "Dashboard — MeritMatrix",
+      admin: "Admin Panel — MeritMatrix",
+      "exam-detail": "Exam Details — MeritMatrix",
+      "exam-interface": "Test in Progress — MeritMatrix",
+    };
+    document.title = titles[page] || "MeritMatrix";
+  }, [page]);
 
   const bg = dark ? "#080a14" : "#f5f6fa";
   const fg = dark ? "#ffffff" : "#111827";
@@ -2285,6 +2453,8 @@ export default function App() {
         }
         @media (max-width: 480px) { .mobile-menu { display: flex !important; } }
         @media (min-width: 769px) { .mobile-menu { display: none !important; } }
+        .admin-mobile-nav { display: none !important; }
+        @media (max-width: 768px) { .admin-mobile-nav { display: block !important; } }
       `}</style>
 
       {showNav && (
@@ -2292,17 +2462,25 @@ export default function App() {
       )}
 
       <main>
-        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} dark={dark} />}
-        {page === "exams"          && <ExamsPage setPage={setPage} setActiveExam={setActiveExam} dark={dark} />}
-        {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPage} setActiveTest={setActiveTest} user={user} dark={dark} />}
-        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} dark={dark} />}
-        {page === "dashboard"      && <DashboardPage user={user} setPage={setPage} dark={dark} />}
-        {page === "exam-interface" && <ExamInterface setPage={setPage} activeTest={activeTest} dark={dark} />}
-        {page === "pricing"        && <PricingPage setPage={setPage} dark={dark} />}
-        {page === "admin"          && <AdminPanel user={user} dark={dark} />}
+        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} />}
+        {page === "exams"          && <ExamsPage setPage={setPage} setActiveExam={setActiveExam} />}
+        {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPage} setActiveTest={setActiveTest} user={user} />}
+        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} />}
+        {page === "dashboard"      && <DashboardPage user={user} setPage={setPage} />}
+        {page === "exam-interface" && <ExamInterface setPage={setPage} activeTest={activeTest} />}
+        {page === "pricing"        && <PricingPage setPage={setPage} />}
+        {page === "admin"          && <AdminPanel user={user} />}
+        {!["home","exams","exam-detail","auth","dashboard","exam-interface","pricing","admin"].includes(page) && (
+          <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", padding: "80px 1rem" }}>
+            <div style={{ fontSize: "4rem" }}>🔍</div>
+            <h2 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Page not found</h2>
+            <p style={{ color: dark ? "#666" : "#888" }}>This page doesn't exist.</p>
+            <button onClick={() => setPage("home")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "10px", cursor: "pointer", fontWeight: 700 }}>Go Home</button>
+          </div>
+        )}
       </main>
 
-      {showFooter && <Footer setPage={setPage} dark={dark} />}
+      {showFooter && <Footer setPage={setPage} />}
     </AuthContext.Provider>
     </ThemeContext.Provider>
   );
