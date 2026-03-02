@@ -1076,13 +1076,13 @@ function ExamInterface({ setPage, activeTest }) {
     setSubmitted(true);
     setShowPalette(false);
     // Save attempt to Supabase
-    if (user?.id && activeTest?.id) {
+    if (user?.id && (activeTest?.test_id || activeTest?.id)) {
       try {
         await supabaseRequest("/attempts", {
           method: "POST",
           body: {
             user_id: user.id,
-            test_id: activeTest.id,
+            test_id: activeTest.test_id || activeTest.id,
             score: finalScore,
             total_marks: totalMarks,
             time_taken: DURATION - timeLeft,
@@ -1735,13 +1735,25 @@ function AdminExams({ user }) {
     setTests(prev => ({ ...prev, [examId]: data || [] }));
   };
 
+  const toSlug = (str) => str.toLowerCase().trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+
   const saveExam = async () => {
+    if (!examForm.name.trim()) { setMsg("❌ Exam name is required"); return; }
+    const slug = toSlug(examForm.name);
+    const body = {
+      ...examForm,
+      slug,
+      organization_id: examForm.organization_id || null,
+    };
     try {
       if (editExam) {
-        await supabaseRequest(`/exams?id=eq.${editExam.id}`, { method: "PATCH", body: examForm, token: user.token });
+        await supabaseRequest(`/exams?id=eq.${editExam.id}`, { method: "PATCH", body, token: user.token });
         setMsg("✅ Exam updated!");
       } else {
-        await supabaseRequest("/exams", { method: "POST", body: examForm, token: user.token });
+        await supabaseRequest("/exams", { method: "POST", body, token: user.token });
         setMsg("✅ Exam created!");
       }
       setShowForm(false); setEditExam(null); setExamForm(emptyExam); loadExams();
@@ -1755,10 +1767,12 @@ function AdminExams({ user }) {
   };
 
   const saveTest = async (examId) => {
+    if (!testForm.name.trim()) { setMsg("❌ Test name is required"); return; }
     try {
       const body = { ...testForm, exam_id: examId };
       if (editTest) {
-        await supabaseRequest(`/tests?id=eq.${editTest.id}`, { method: "PATCH", body: testForm, token: user.token });
+        // Include exam_id in PATCH too so it's never lost
+        await supabaseRequest(`/tests?id=eq.${editTest.id}`, { method: "PATCH", body, token: user.token });
       } else {
         await supabaseRequest("/tests", { method: "POST", body, token: user.token });
       }
@@ -1796,7 +1810,7 @@ function AdminExams({ user }) {
             <div>
               <label style={{ color: "#aaa", fontSize: "12px" }}>Organization</label>
               <select value={examForm.organization_id} onChange={e => setExamForm(p => ({...p, organization_id: e.target.value}))}
-                style={{ ...inputS, background: "#1a1a2e" }}>
+                style={{ ...inputS }}>
                 <option value="">-- Select Organization --</option>
                 {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
@@ -1856,7 +1870,7 @@ function AdminExams({ user }) {
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                         <div><label style={{ color: "#aaa", fontSize: "11px" }}>Test Name *</label><input value={testForm.name} onChange={e => setTestForm(p => ({...p, name: e.target.value}))} style={inputS} placeholder="e.g. Mathematics Practice Set 1" /></div>
                         <div><label style={{ color: "#aaa", fontSize: "11px" }}>Type</label>
-                          <select value={testForm.test_type} onChange={e => setTestForm(p => ({...p, test_type: e.target.value}))} style={{ ...inputS, background: "#1a1a2e" }}>
+                          <select value={testForm.test_type} onChange={e => setTestForm(p => ({...p, test_type: e.target.value}))} style={{ ...inputS }}>
                             <option value="mock">Mock Test</option>
                             <option value="sectional">Sectional Test</option>
                             <option value="pyq">PYQ</option>
