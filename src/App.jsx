@@ -219,23 +219,23 @@ function LogoSlider({ logos = LOGOS_CONFIG }) {
         <div className="slider-track">
           {items.map((logo, i) => (
             <div key={i} style={{
-              flex: "0 0 auto", width: "120px", height: "80px",
-              margin: "0 16px",
+              flex: "0 0 auto", width: "clamp(120px, 14vw, 180px)", height: "clamp(80px, 10vw, 120px)",
+              margin: "0 clamp(12px, 2vw, 20px)",
               background: "rgba(255,255,255,0.05)",
-              borderRadius: "12px",
+              borderRadius: "16px",
               border: "1px solid rgba(255,255,255,0.08)",
               display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
-              padding: "8px", gap: "4px"
+              padding: "12px", gap: "8px"
             }}>
               <img
                 src={`/logos/${logo.file}`}
                 alt={logo.name}
                 loading="lazy"
-                style={{ width: "48px", height: "48px", objectFit: "contain" }}
+                style={{ width: "clamp(40px, 5vw, 64px)", height: "clamp(40px, 5vw, 64px)", objectFit: "contain" }}
                 onError={(e) => { e.target.style.display = "none"; }}
               />
-              <span style={{ color: "#aaa", fontSize: "9px", textAlign: "center", lineHeight: 1.2 }}>{logo.name}</span>
+              <span style={{ color: "#aaa", fontSize: "clamp(9px, 1vw, 12px)", textAlign: "center", lineHeight: 1.3 }}>{logo.name}</span>
             </div>
           ))}
         </div>
@@ -892,7 +892,7 @@ function DashboardPage({ user, setPage }) {
   );
 }
 
-// SECURE EXAM INTERFACE
+// SECURE EXAM INTERFACE — Advanced
 function ExamInterface({ setPage, activeTest }) {
   const { user } = useAuth();
   const testName = activeTest?.name || "Mock Test";
@@ -901,21 +901,23 @@ function ExamInterface({ setPage, activeTest }) {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [answers, setAnswers] = useState({});
+  const [answers, setAnswers] = useState({});       // qid -> option index
+  const [marked, setMarked] = useState({});          // qid -> true (marked for review)
   const [current, setCurrent] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DURATION);
   const [submitted, setSubmitted] = useState(false);
   const [warnings, setWarnings] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
   const [score, setScore] = useState(null);
+  const [showPalette, setShowPalette] = useState(false); // mobile drawer
+  const [showSolution, setShowSolution] = useState(null); // question index for solution view
+  const [activeResultTab, setActiveResultTab] = useState("overview");
   const timerRef = useRef();
 
-  // Fetch real questions from Supabase
   useEffect(() => {
     const endpoint = activeTest?.test_id
       ? `/questions?test_id=eq.${activeTest.test_id}&select=*`
       : `/questions?limit=20&select=*`;
-
     supabaseRequest(endpoint, { token: user?.token })
       .then(data => {
         if (!data || data.length === 0) {
@@ -929,7 +931,8 @@ function ExamInterface({ setPage, activeTest }) {
           correct: ["a","b","c","d"].indexOf(q.correct_answer?.toLowerCase()),
           marks: q.marks || 1,
           negative: q.negative_marks ?? 0.25,
-          subject: q.subject,
+          subject: q.subject || "General",
+          explanation: q.explanation || "",
         })));
         setLoading(false);
       })
@@ -946,8 +949,9 @@ function ExamInterface({ setPage, activeTest }) {
       if (answers[q.id] === q.correct) s += q.marks;
       else if (answers[q.id] !== undefined) s -= q.negative;
     });
-    setScore(Math.max(0, s));
+    setScore(Math.max(0, parseFloat(s.toFixed(2))));
     setSubmitted(true);
+    setShowPalette(false);
   }, [answers, submitted, questions]);
 
   useEffect(() => {
@@ -973,145 +977,500 @@ function ExamInterface({ setPage, activeTest }) {
   const mm = String(Math.floor(timeLeft/60)).padStart(2,"0");
   const ss = String(timeLeft%60).padStart(2,"0");
   const isRed = timeLeft < 120;
+  const isOrange = timeLeft < 300 && timeLeft >= 120;
 
+  // Question status helpers
+  const getStatus = (q, i) => {
+    if (answers[q.id] !== undefined && marked[q.id]) return "marked-answered";
+    if (marked[q.id]) return "marked";
+    if (answers[q.id] !== undefined) return "answered";
+    if (i < current) return "skipped";
+    return "unattempted";
+  };
+
+  const statusColor = (status, isCurrent) => {
+    if (isCurrent) return { bg: "rgba(255,215,0,0.25)", border: "2px solid #FFD700", color: "#FFD700" };
+    switch(status) {
+      case "answered": return { bg: "rgba(74,222,128,0.2)", border: "1px solid #4ade80", color: "#4ade80" };
+      case "marked": return { bg: "rgba(251,146,60,0.2)", border: "1px solid #fb923c", color: "#fb923c" };
+      case "marked-answered": return { bg: "rgba(129,140,248,0.2)", border: "1px solid #818cf8", color: "#818cf8" };
+      case "skipped": return { bg: "rgba(255,100,100,0.15)", border: "1px solid rgba(255,100,100,0.4)", color: "#ff6b6b" };
+      default: return { bg: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#555" };
+    }
+  };
+
+  const answered = Object.keys(answers).length;
+  const markedCount = Object.keys(marked).filter(k => marked[k]).length;
+  const skipped = questions.filter((q,i) => i < current && answers[q.id] === undefined && !marked[q.id]).length;
+
+  // Loading
   if (loading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px" }}>
-      <div style={{ width: 48, height: 48, border: "4px solid rgba(255,215,0,0.2)", borderTop: "4px solid #FFD700", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", background: "#080a14" }}>
+      <div style={{ width: 52, height: 52, border: "4px solid rgba(255,215,0,0.15)", borderTop: "4px solid #FFD700", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <p style={{ color: "#aaa" }}>Loading questions...</p>
+      <p style={{ color: "#aaa", fontFamily: "'Sora',sans-serif" }}>Loading questions...</p>
+      <p style={{ color: "#555", fontSize: "12px" }}>{testName}</p>
     </div>
   );
 
   if (loadError) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", background: "#080a14" }}>
       <div style={{ textAlign: "center", maxWidth: "500px" }}>
-        <div style={{ fontSize: "3rem", marginBottom: "16px" }}>⚠️</div>
-        <h2 style={{ color: "#fff", fontWeight: 700, marginBottom: "12px" }}>No Questions Found</h2>
-        <p style={{ color: "#666", fontSize: "14px", marginBottom: "24px" }}>{loadError}</p>
+        <div style={{ fontSize: "3.5rem", marginBottom: "16px" }}>⚠️</div>
+        <h2 style={{ color: "#fff", fontWeight: 700, marginBottom: "12px", fontFamily: "'Sora',sans-serif" }}>No Questions Found</h2>
+        <p style={{ color: "#666", fontSize: "14px", marginBottom: "24px", lineHeight: 1.6 }}>{loadError}</p>
         <button onClick={() => setPage("exams")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "10px", cursor: "pointer", fontWeight: 700 }}>Back to Exams</button>
       </div>
     </div>
   );
 
+  // ─────────────────────────────────────────────
+  // RESULTS SCREEN
+  // ─────────────────────────────────────────────
   if (submitted && score !== null) {
     const totalMarks = questions.reduce((s, q) => s + q.marks, 0);
     const pct = Math.round(score / totalMarks * 100);
     const correct = questions.filter(q => answers[q.id] === q.correct).length;
     const wrong = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== q.correct).length;
+    const skippedQ = TOTAL - correct - wrong;
+    const timeTaken = DURATION - timeLeft;
+    const mm2 = String(Math.floor(timeTaken/60)).padStart(2,"0");
+    const ss2 = String(timeTaken%60).padStart(2,"0");
+
     const subjects = {};
     questions.forEach(q => {
       const s = q.subject || "General";
-      if (!subjects[s]) subjects[s] = { correct: 0, total: 0 };
+      if (!subjects[s]) subjects[s] = { correct: 0, wrong: 0, skipped: 0, total: 0, marks: 0 };
       subjects[s].total++;
-      if (answers[q.id] === q.correct) subjects[s].correct++;
+      if (answers[q.id] === q.correct) { subjects[s].correct++; subjects[s].marks += q.marks; }
+      else if (answers[q.id] !== undefined) { subjects[s].wrong++; subjects[s].marks -= q.negative; }
+      else subjects[s].skipped++;
     });
+
+    const grade = pct >= 90 ? { label: "Excellent", color: "#FFD700", emoji: "🥇" }
+      : pct >= 75 ? { label: "Very Good", color: "#4ade80", emoji: "🎉" }
+      : pct >= 60 ? { label: "Good", color: "#4ade80", emoji: "👍" }
+      : pct >= 40 ? { label: "Average", color: "#fb923c", emoji: "📈" }
+      : { label: "Need Practice", color: "#ff6b6b", emoji: "💪" };
+
+    const resultTabs = ["overview", "solutions"];
+
     return (
-      <div style={{ minHeight: "100vh", padding: "40px 1rem 60px", maxWidth: "700px", margin: "0 auto" }}>
-        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "20px", padding: "40px", textAlign: "center" }}>
-          <div style={{ fontSize: "4rem", marginBottom: "12px" }}>{pct >= 70 ? "🎉" : pct >= 40 ? "📊" : "💪"}</div>
-          <h2 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "2rem", marginBottom: "8px" }}>Test Submitted!</h2>
-          <p style={{ color: "#666", marginBottom: "24px" }}>{testName}</p>
-          <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginBottom: "28px" }}>
-            {[[`${score.toFixed(1)}/${totalMarks}`,"Score","#FFD700"],[`${pct}%`,"Percentage","#4ade80"],[`${correct}`,"Correct","#4ade80"],[`${wrong}`,"Wrong","#ff6b6b"],[`${TOTAL-correct-wrong}`,"Skipped","#818cf8"]].map(([v,l,c]) => (
-              <div key={l} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "12px", padding: "14px 20px", minWidth: "80px" }}>
-                <div style={{ color: c, fontSize: "1.8rem", fontWeight: 900 }}>{v}</div>
-                <div style={{ color: "#666", fontSize: "11px" }}>{l}</div>
-              </div>
-            ))}
+      <div style={{ minHeight: "100vh", background: "#080a14", padding: "20px 1rem 60px" }}>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}`}</style>
+        <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+
+          {/* Header */}
+          <div style={{ textAlign: "center", marginBottom: "28px", animation: "fadeUp 0.5s ease" }}>
+            <div style={{ fontSize: "4rem", marginBottom: "8px" }}>{grade.emoji}</div>
+            <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(1.6rem,4vw,2.4rem)", color: "#fff", marginBottom: "4px" }}>Test Completed!</h1>
+            <p style={{ color: "#666", fontSize: "14px", marginBottom: "12px" }}>{testName}</p>
+            <span style={{ background: grade.color + "22", border: `1px solid ${grade.color}55`, color: grade.color, padding: "4px 16px", borderRadius: "20px", fontSize: "14px", fontWeight: 700 }}>{grade.label}</span>
           </div>
-          <div style={{ background: "rgba(255,215,0,0.05)", border: "1px solid rgba(255,215,0,0.15)", borderRadius: "10px", padding: "16px", marginBottom: "24px", textAlign: "left" }}>
-            <h3 style={{ color: "#FFD700", fontSize: "13px", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "1px" }}>Subject Breakdown</h3>
-            <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: "6px", height: "6px", overflow: "hidden", marginBottom: "12px" }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#FFD700,#FF8C00)", transition: "width 1s" }} />
+
+          {/* Score hero */}
+          <div style={{ background: "linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.05))", border: "1px solid rgba(255,215,0,0.2)", borderRadius: "20px", padding: "28px", marginBottom: "20px", textAlign: "center", animation: "fadeUp 0.6s ease" }}>
+            <div style={{ fontSize: "clamp(3rem,8vw,5rem)", fontWeight: 900, fontFamily: "'Sora',sans-serif", color: "#FFD700", lineHeight: 1 }}>{pct}%</div>
+            <div style={{ color: "#aaa", fontSize: "15px", marginTop: "6px" }}>{score.toFixed(1)} out of {totalMarks} marks</div>
+            <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", margin: "16px 0 8px", overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#FFD700,#FF8C00)", borderRadius: "8px", transition: "width 1.5s ease" }} />
             </div>
-            {Object.entries(subjects).map(([s,d]) => (
-              <div key={s} style={{ marginBottom: "10px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", color: "#aaa", fontSize: "12px", marginBottom: "4px" }}>
-                  <span>{s}</span><span style={{ color: "#4ade80" }}>{d.correct}/{d.total}</span>
-                </div>
-                <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: "4px", height: "4px" }}>
-                  <div style={{ width: `${Math.round(d.correct/d.total*100)}%`, height: "100%", background: "#4ade80", borderRadius: "4px" }} />
-                </div>
+          </div>
+
+          {/* Stats grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "12px", marginBottom: "20px", animation: "fadeUp 0.7s ease" }}>
+            {[
+              { v: correct, l: "Correct", c: "#4ade80", icon: "✓" },
+              { v: wrong, l: "Wrong", c: "#ff6b6b", icon: "✗" },
+              { v: skippedQ, l: "Skipped", c: "#818cf8", icon: "–" },
+              { v: `${mm2}:${ss2}`, l: "Time Taken", c: "#fb923c", icon: "⏱" },
+            ].map(({ v, l, c, icon }) => (
+              <div key={l} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "16px", textAlign: "center" }}>
+                <div style={{ color: c, fontSize: "1.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>{v}</div>
+                <div style={{ color: "#555", fontSize: "11px", marginTop: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>{l}</div>
               </div>
             ))}
           </div>
-          <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-            <button onClick={() => setPage("exams")} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "12px 24px", borderRadius: "10px", cursor: "pointer", fontSize: "14px" }}>Back to Exams</button>
-            <button onClick={() => setPage("dashboard")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "10px", cursor: "pointer", fontSize: "14px", fontWeight: 700 }}>Dashboard →</button>
+
+          {/* Result tabs */}
+          <div style={{ display: "flex", gap: "4px", background: "rgba(255,255,255,0.05)", borderRadius: "10px", padding: "4px", marginBottom: "20px" }}>
+            {[["overview","📊 Overview"],["solutions","📝 Solutions"]].map(([k,l]) => (
+              <button key={k} onClick={() => setActiveResultTab(k)} style={{
+                flex: 1, padding: "10px", borderRadius: "7px", border: "none", cursor: "pointer", fontSize: "14px", fontWeight: activeResultTab===k ? 700 : 400,
+                background: activeResultTab===k ? "rgba(255,215,0,0.15)" : "transparent",
+                color: activeResultTab===k ? "#FFD700" : "#666",
+              }}>{l}</button>
+            ))}
+          </div>
+
+          {activeResultTab === "overview" && (
+            <div style={{ animation: "fadeUp 0.3s ease" }}>
+              {/* Subject Breakdown */}
+              <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", marginBottom: "16px" }}>
+                <h3 style={{ color: "#aaa", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>Subject-wise Performance</h3>
+                {Object.entries(subjects).map(([sub, d]) => {
+                  const spct = Math.round(d.correct / d.total * 100);
+                  return (
+                    <div key={sub} style={{ marginBottom: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                        <span style={{ color: "#ddd", fontSize: "14px", fontWeight: 600 }}>{sub}</span>
+                        <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
+                          <span style={{ color: "#4ade80" }}>✓ {d.correct}</span>
+                          <span style={{ color: "#ff6b6b" }}>✗ {d.wrong}</span>
+                          <span style={{ color: "#818cf8" }}>– {d.skipped}</span>
+                          <span style={{ color: "#FFD700", fontWeight: 700 }}>{spct}%</span>
+                        </div>
+                      </div>
+                      <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "4px", height: "6px", overflow: "hidden" }}>
+                        <div style={{ width: `${spct}%`, height: "100%", background: spct >= 70 ? "#4ade80" : spct >= 40 ? "#fb923c" : "#ff6b6b", borderRadius: "4px", transition: "width 1s ease" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Performance analysis */}
+              <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", marginBottom: "20px" }}>
+                <h3 style={{ color: "#aaa", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Performance Analysis</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <div style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: "10px", padding: "12px" }}>
+                    <div style={{ color: "#4ade80", fontSize: "11px", marginBottom: "4px" }}>ACCURACY</div>
+                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>{answered > 0 ? Math.round(correct/answered*100) : 0}%</div>
+                    <div style={{ color: "#555", fontSize: "11px" }}>{correct} correct of {answered} attempted</div>
+                  </div>
+                  <div style={{ background: "rgba(255,215,0,0.05)", border: "1px solid rgba(255,215,0,0.15)", borderRadius: "10px", padding: "12px" }}>
+                    <div style={{ color: "#FFD700", fontSize: "11px", marginBottom: "4px" }}>ATTEMPT RATE</div>
+                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>{Math.round(answered/TOTAL*100)}%</div>
+                    <div style={{ color: "#555", fontSize: "11px" }}>{answered} of {TOTAL} attempted</div>
+                  </div>
+                  <div style={{ background: "rgba(255,100,100,0.05)", border: "1px solid rgba(255,100,100,0.15)", borderRadius: "10px", padding: "12px" }}>
+                    <div style={{ color: "#ff6b6b", fontSize: "11px", marginBottom: "4px" }}>MARKS LOST</div>
+                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>-{(wrong * (questions[0]?.negative || 0.25)).toFixed(2)}</div>
+                    <div style={{ color: "#555", fontSize: "11px" }}>from {wrong} wrong answers</div>
+                  </div>
+                  <div style={{ background: "rgba(129,140,248,0.05)", border: "1px solid rgba(129,140,248,0.15)", borderRadius: "10px", padding: "12px" }}>
+                    <div style={{ color: "#818cf8", fontSize: "11px", marginBottom: "4px" }}>AVG TIME/Q</div>
+                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>{answered > 0 ? Math.round(timeTaken/answered) : 0}s</div>
+                    <div style={{ color: "#555", fontSize: "11px" }}>per attempted question</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeResultTab === "solutions" && (
+            <div style={{ animation: "fadeUp 0.3s ease" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {questions.map((q, i) => {
+                  const userAns = answers[q.id];
+                  const isCorrect = userAns === q.correct;
+                  const isWrong = userAns !== undefined && !isCorrect;
+                  const isSkipped = userAns === undefined;
+                  const statusC = isCorrect ? "#4ade80" : isWrong ? "#ff6b6b" : "#818cf8";
+                  const statusIcon = isCorrect ? "✓" : isWrong ? "✗" : "–";
+                  return (
+                    <div key={q.id} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${statusC}33`, borderRadius: "14px", overflow: "hidden" }}>
+                      <div
+                        onClick={() => setShowSolution(showSolution === i ? null : i)}
+                        style={{ padding: "14px 18px", cursor: "pointer", display: "flex", alignItems: "flex-start", gap: "12px" }}
+                      >
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: statusC + "22", border: `1px solid ${statusC}55`, display: "flex", alignItems: "center", justifyContent: "center", color: statusC, fontWeight: 800, fontSize: "13px", flexShrink: 0 }}>{statusIcon}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: "#888", fontSize: "11px", marginBottom: "4px" }}>Q{i+1} • {q.subject}</div>
+                          <div style={{ color: "#ddd", fontSize: "14px", lineHeight: 1.5 }}>{q.text.length > 100 ? q.text.slice(0,100) + "..." : q.text}</div>
+                        </div>
+                        <div style={{ color: "#555", fontSize: "18px", flexShrink: 0 }}>{showSolution === i ? "▲" : "▼"}</div>
+                      </div>
+                      {showSolution === i && (
+                        <div style={{ padding: "0 18px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                          <div style={{ paddingTop: "14px", marginBottom: "12px", color: "#ccc", fontSize: "14px", lineHeight: 1.7 }}>{q.text}</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
+                            {q.options.map((opt, idx) => {
+                              const isUserChoice = userAns === idx;
+                              const isCorrectOpt = q.correct === idx;
+                              let bg = "rgba(255,255,255,0.04)";
+                              let border = "1px solid rgba(255,255,255,0.08)";
+                              let col = "#aaa";
+                              if (isCorrectOpt) { bg = "rgba(74,222,128,0.12)"; border = "1px solid rgba(74,222,128,0.4)"; col = "#4ade80"; }
+                              if (isUserChoice && !isCorrectOpt) { bg = "rgba(255,100,100,0.1)"; border = "1px solid rgba(255,100,100,0.4)"; col = "#ff6b6b"; }
+                              return (
+                                <div key={idx} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", borderRadius: "8px", background: bg, border }}>
+                                  <span style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: col, fontSize: "11px", fontWeight: 700, flexShrink: 0 }}>{["A","B","C","D"][idx]}</span>
+                                  <span style={{ color: col, fontSize: "14px" }}>{opt}</span>
+                                  {isCorrectOpt && <span style={{ marginLeft: "auto", color: "#4ade80", fontSize: "12px" }}>✓ Correct</span>}
+                                  {isUserChoice && !isCorrectOpt && <span style={{ marginLeft: "auto", color: "#ff6b6b", fontSize: "12px" }}>Your answer</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {q.explanation && (
+                            <div style={{ background: "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.15)", borderRadius: "8px", padding: "12px 14px" }}>
+                              <span style={{ color: "#FFD700", fontSize: "11px", fontWeight: 700 }}>💡 EXPLANATION</span>
+                              <p style={{ color: "#aaa", fontSize: "13px", marginTop: "6px", lineHeight: 1.6, margin: "6px 0 0" }}>{q.explanation}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "24px", flexWrap: "wrap" }}>
+            <button onClick={() => setPage("exams")} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "13px 28px", borderRadius: "10px", cursor: "pointer", fontSize: "15px", fontWeight: 600 }}>← More Tests</button>
+            <button onClick={() => setPage("dashboard")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "13px 32px", borderRadius: "10px", cursor: "pointer", fontSize: "15px", fontWeight: 800 }}>Dashboard →</button>
           </div>
         </div>
       </div>
     );
   }
 
+  // ─────────────────────────────────────────────
+  // EXAM INTERFACE
+  // ─────────────────────────────────────────────
   const q = questions[current];
+
+  // Question Palette component (shared between desktop sidebar and mobile drawer)
+  const QuestionPalette = ({ onClose }) => (
+    <div style={{ padding: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+        <div style={{ color: "#fff", fontSize: "14px", fontWeight: 700 }}>Question Palette</div>
+        {onClose && <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#aaa", fontSize: "20px", cursor: "pointer", lineHeight: 1 }}>×</button>}
+      </div>
+      {/* Legend */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "14px", fontSize: "11px" }}>
+        {[
+          { c: "#4ade80", l: `Answered (${answered})` },
+          { c: "#ff6b6b", l: `Skipped (${skipped})` },
+          { c: "#fb923c", l: `Marked (${markedCount})` },
+          { c: "#555", l: `Not visited` },
+        ].map(({ c, l }) => (
+          <div key={l} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+            <div style={{ width: 10, height: 10, borderRadius: "2px", background: c + "44", border: `1px solid ${c}88`, flexShrink: 0 }} />
+            <span style={{ color: "#666" }}>{l}</span>
+          </div>
+        ))}
+      </div>
+      {/* Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "6px" }}>
+        {questions.map((qq, i) => {
+          const status = getStatus(qq, i);
+          const isCurrent = i === current;
+          const sc = statusColor(status, isCurrent);
+          return (
+            <button key={i} onClick={() => { setCurrent(i); if(onClose) onClose(); }} style={{
+              height: "36px", borderRadius: "6px", border: sc.border,
+              background: sc.bg, color: sc.color,
+              cursor: "pointer", fontSize: "12px", fontWeight: 700,
+              position: "relative", transition: "all 0.15s"
+            }}>
+              {i+1}
+              {marked[qq.id] && <span style={{ position: "absolute", top: 1, right: 2, fontSize: "7px", color: "#fb923c" }}>●</span>}
+            </button>
+          );
+        })}
+      </div>
+      {/* Stats */}
+      <div style={{ marginTop: "14px", padding: "10px", background: "rgba(255,255,255,0.03)", borderRadius: "8px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "#555", fontSize: "12px", marginBottom: "6px" }}>
+          <span>Total Questions</span><span style={{ color: "#aaa" }}>{TOTAL}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "#555", fontSize: "12px", marginBottom: "6px" }}>
+          <span>Attempted</span><span style={{ color: "#4ade80" }}>{answered}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "#555", fontSize: "12px" }}>
+          <span>Remaining</span><span style={{ color: "#ff6b6b" }}>{TOTAL - answered}</span>
+        </div>
+      </div>
+      <button onClick={handleSubmit} style={{
+        width: "100%", marginTop: "14px",
+        background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none",
+        color: "#000", padding: "13px", borderRadius: "10px",
+        cursor: "pointer", fontSize: "15px", fontWeight: 800
+      }}>Submit Test ✓</button>
+    </div>
+  );
+
   return (
-    <div style={{ minHeight: "100vh", background: "#080a14", padding: "0", userSelect: "none" }}>
+    <div style={{ minHeight: "100vh", background: "#080a14", userSelect: "none" }}>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+      `}</style>
+
+      {/* Warning banner */}
       {showWarning && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "rgba(255,50,50,0.95)", padding: "14px", textAlign: "center", color: "#fff", fontWeight: 700, fontSize: "14px" }}>
-          ⚠️ Tab switching detected! Warning {warnings}/3. Auto-submit after 3 warnings.
-          <button onClick={() => setShowWarning(false)} style={{ marginLeft: "12px", background: "transparent", border: "1px solid rgba(255,255,255,0.5)", color: "#fff", padding: "4px 10px", borderRadius: "4px", cursor: "pointer" }}>Dismiss</button>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "linear-gradient(135deg,rgba(255,50,50,0.97),rgba(200,0,0,0.97))", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ color: "#fff", fontWeight: 700, fontSize: "14px" }}>⚠️ Tab switch detected! Warning {warnings}/3 — Auto-submit at 3</span>
+          <button onClick={() => setShowWarning(false)} style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", padding: "5px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Dismiss</button>
         </div>
       )}
-      <div style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(8,10,20,0.98)", borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
-        <div style={{ color: "#fff", fontWeight: 700, fontSize: "15px" }}>{testName}</div>
-        <div style={{ color: isRed ? "#ff4444" : "#4ade80", fontFamily: "monospace", fontSize: "1.4rem", fontWeight: 900, background: isRed ? "rgba(255,68,68,0.1)" : "rgba(74,222,128,0.1)", border: isRed ? "1px solid rgba(255,68,68,0.3)" : "1px solid rgba(74,222,128,0.3)", padding: "6px 16px", borderRadius: "8px" }}>{mm}:{ss}</div>
-        <button onClick={handleSubmit} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: 700 }}>Submit Test</button>
+
+      {/* Top Bar */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 100,
+        background: "rgba(8,10,20,0.98)", backdropFilter: "blur(12px)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        padding: "0 16px", height: "58px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px"
+      }}>
+        {/* Left: Test name */}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
+          <div style={{ color: "#555", fontSize: "11px" }}>Q{current+1}/{TOTAL} • {answered} answered</div>
+        </div>
+
+        {/* Center: Timer */}
+        <div style={{
+          color: isRed ? "#ff4444" : isOrange ? "#fb923c" : "#4ade80",
+          fontFamily: "monospace", fontSize: "1.5rem", fontWeight: 900,
+          background: isRed ? "rgba(255,68,68,0.12)" : isOrange ? "rgba(251,146,60,0.12)" : "rgba(74,222,128,0.1)",
+          border: `1px solid ${isRed ? "rgba(255,68,68,0.4)" : isOrange ? "rgba(251,146,60,0.4)" : "rgba(74,222,128,0.3)"}`,
+          padding: "5px 14px", borderRadius: "8px", flexShrink: 0,
+          animation: isRed ? "pulse 1s infinite" : "none"
+        }}>{mm}:{ss}</div>
+
+        {/* Right: Mobile palette btn + Submit */}
+        <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+          <button onClick={() => setShowPalette(true)} className="palette-btn-mobile" style={{
+            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+            color: "#aaa", padding: "7px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "13px"
+          }}>📋</button>
+          <button onClick={handleSubmit} style={{
+            background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none",
+            color: "#000", padding: "8px 16px", borderRadius: "8px",
+            cursor: "pointer", fontSize: "13px", fontWeight: 800
+          }}>Submit</button>
+        </div>
       </div>
-      <div style={{ display: "flex", maxWidth: "1100px", margin: "0 auto", padding: "16px", gap: "16px" }}>
+
+      {/* Main layout */}
+      <div style={{ display: "flex", maxWidth: "1200px", margin: "0 auto", padding: "16px", gap: "20px" }}>
+
+        {/* Question area */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: "#666", fontSize: "12px", marginBottom: "8px" }}>Question {current + 1} of {TOTAL}</div>
-          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "24px", marginBottom: "16px" }}>
-            <p style={{ color: "#fff", fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.7, margin: 0 }}>{q.text}</p>
-            <div style={{ fontSize: "11px", color: "#555", marginTop: "8px" }}>+{q.marks} marks | -{q.negative} negative • {q.subject}</div>
+          {/* Question header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>Q {current+1}</span>
+              <span style={{ background: "rgba(255,255,255,0.06)", color: "#888", padding: "3px 10px", borderRadius: "6px", fontSize: "12px" }}>{q.subject}</span>
+              <span style={{ color: "#4ade80", fontSize: "12px" }}>+{q.marks}</span>
+              <span style={{ color: "#ff6b6b", fontSize: "12px" }}>-{q.negative}</span>
+            </div>
+            <button
+              onClick={() => setMarked(prev => ({ ...prev, [q.id]: !prev[q.id] }))}
+              style={{
+                background: marked[q.id] ? "rgba(251,146,60,0.15)" : "rgba(255,255,255,0.05)",
+                border: marked[q.id] ? "1px solid rgba(251,146,60,0.5)" : "1px solid rgba(255,255,255,0.12)",
+                color: marked[q.id] ? "#fb923c" : "#666",
+                padding: "5px 12px", borderRadius: "7px", cursor: "pointer", fontSize: "12px", fontWeight: 600
+              }}
+            >{marked[q.id] ? "🔖 Marked" : "🔖 Mark for Review"}</button>
           </div>
+
+          {/* Question card */}
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "clamp(16px,3vw,28px)", marginBottom: "14px" }}>
+            <p style={{ color: "#fff", fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.8, margin: 0, fontWeight: 500 }}>{q.text}</p>
+          </div>
+
+          {/* Options */}
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
             {q.options.map((opt, idx) => {
               const selected = answers[q.id] === idx;
               return (
                 <button key={idx} onClick={() => setAnswers(prev => ({ ...prev, [q.id]: idx }))} style={{
-                  background: selected ? "rgba(255,215,0,0.15)" : "rgba(255,255,255,0.04)",
-                  border: selected ? "1px solid rgba(255,215,0,0.5)" : "1px solid rgba(255,255,255,0.08)",
-                  color: selected ? "#FFD700" : "#ddd", padding: "14px 18px", borderRadius: "10px",
-                  cursor: "pointer", textAlign: "left", fontSize: "15px", transition: "all 0.15s",
-                  display: "flex", alignItems: "center", gap: "12px"
+                  background: selected ? "rgba(255,215,0,0.12)" : "rgba(255,255,255,0.04)",
+                  border: selected ? "2px solid rgba(255,215,0,0.6)" : "1px solid rgba(255,255,255,0.09)",
+                  color: selected ? "#FFD700" : "#ddd",
+                  padding: "clamp(12px,2vw,16px) clamp(14px,2vw,20px)",
+                  borderRadius: "12px", cursor: "pointer", textAlign: "left",
+                  fontSize: "clamp(14px,2vw,16px)", transition: "all 0.15s",
+                  display: "flex", alignItems: "center", gap: "14px",
+                  boxShadow: selected ? "0 0 0 1px rgba(255,215,0,0.15)" : "none"
                 }}>
-                  <span style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, background: selected ? "#FFD700" : "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: selected ? "#000" : "#666", fontSize: "12px", fontWeight: 700 }}>
-                    {["A","B","C","D"][idx]}
-                  </span>
-                  {opt}
+                  <span style={{
+                    width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                    background: selected ? "#FFD700" : "rgba(255,255,255,0.08)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: selected ? "#000" : "#777", fontSize: "13px", fontWeight: 800,
+                    transition: "all 0.15s"
+                  }}>{["A","B","C","D"][idx]}</span>
+                  <span style={{ lineHeight: 1.5 }}>{opt}</span>
                 </button>
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: "10px", justifyContent: "space-between" }}>
-            <button onClick={() => setCurrent(c => Math.max(0, c-1))} disabled={current===0} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: current===0?"#444":"#fff", padding: "12px 24px", borderRadius: "8px", cursor: current===0?"not-allowed":"pointer", fontSize: "14px" }}>← Prev</button>
-            <button onClick={() => setAnswers(prev => { const n={...prev}; delete n[q.id]; return n; })} style={{ background: "transparent", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", padding: "12px 20px", borderRadius: "8px", cursor: "pointer", fontSize: "14px" }}>Clear</button>
-            <button onClick={() => setCurrent(c => Math.min(TOTAL-1, c+1))} disabled={current===TOTAL-1} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 24px", borderRadius: "8px", cursor: current===TOTAL-1?"not-allowed":"pointer", fontSize: "14px", fontWeight: 700 }}>Next →</button>
+
+          {/* Navigation */}
+          <div style={{ display: "flex", gap: "10px", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => setCurrent(c => Math.max(0, c-1))} disabled={current===0} style={{
+              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+              color: current===0 ? "#333" : "#fff", padding: "11px 22px",
+              borderRadius: "9px", cursor: current===0 ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: 600
+            }}>← Prev</button>
+
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => setAnswers(prev => { const n={...prev}; delete n[q.id]; return n; })} style={{
+                background: "transparent", border: "1px solid rgba(255,100,100,0.3)",
+                color: "#ff6b6b", padding: "11px 16px", borderRadius: "9px", cursor: "pointer", fontSize: "13px"
+              }}>Clear</button>
+              <button onClick={() => { setMarked(prev => ({ ...prev, [q.id]: true })); setCurrent(c => Math.min(TOTAL-1, c+1)); }} style={{
+                background: "rgba(251,146,60,0.1)", border: "1px solid rgba(251,146,60,0.3)",
+                color: "#fb923c", padding: "11px 14px", borderRadius: "9px", cursor: "pointer", fontSize: "13px"
+              }}>Mark & Next</button>
+            </div>
+
+            <button onClick={() => setCurrent(c => Math.min(TOTAL-1, c+1))} disabled={current===TOTAL-1} style={{
+              background: current===TOTAL-1 ? "rgba(255,255,255,0.05)" : "linear-gradient(135deg,#FFD700,#FF8C00)",
+              border: "none", color: current===TOTAL-1 ? "#333" : "#000",
+              padding: "11px 22px", borderRadius: "9px",
+              cursor: current===TOTAL-1 ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: 700
+            }}>Next →</button>
           </div>
         </div>
-        <div style={{ width: "220px", flexShrink: 0, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "16px", alignSelf: "flex-start", position: "sticky", top: "80px" }} className="question-grid-sidebar">
-          <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "12px", fontWeight: 600 }}>Question Palette</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "6px" }}>
-            {questions.map((qq, i) => {
-              const isAnswered = answers[qq.id] !== undefined;
-              const isCurrent = i === current;
-              return (
-                <button key={i} onClick={() => setCurrent(i)} style={{
-                  width: "32px", height: "32px", borderRadius: "6px",
-                  background: isAnswered ? "rgba(74,222,128,0.2)" : isCurrent ? "rgba(255,215,0,0.2)" : "rgba(255,255,255,0.06)",
-                  border: isAnswered ? "1px solid rgba(74,222,128,0.4)" : isCurrent ? "1px solid rgba(255,215,0,0.4)" : "1px solid rgba(255,255,255,0.1)",
-                  color: isAnswered ? "#4ade80" : isCurrent ? "#FFD700" : "#666",
-                  cursor: "pointer", fontSize: "11px", fontWeight: 600
-                }}>{i+1}</button>
-              );
-            })}
-          </div>
-          <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "6px", fontSize: "11px", color: "#555" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}><div style={{ width: 10, height: 10, borderRadius: "2px", background: "rgba(74,222,128,0.3)" }} />Answered ({Object.keys(answers).length})</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}><div style={{ width: 10, height: 10, borderRadius: "2px", background: "rgba(255,255,255,0.06)" }} />Remaining ({TOTAL - Object.keys(answers).length})</div>
+
+        {/* Desktop Sidebar */}
+        <div className="exam-sidebar" style={{
+          width: "250px", flexShrink: 0, alignSelf: "flex-start",
+          position: "sticky", top: "74px",
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: "16px", overflow: "hidden"
+        }}>
+          <QuestionPalette />
+        </div>
+      </div>
+
+      {/* Mobile Palette Drawer */}
+      {showPalette && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={() => setShowPalette(false)} style={{ flex: 1, background: "rgba(0,0,0,0.6)" }} />
+          <div style={{
+            background: "#0f1120", borderRadius: "20px 20px 0 0",
+            border: "1px solid rgba(255,255,255,0.1)",
+            maxHeight: "80vh", overflowY: "auto",
+            animation: "slideUp 0.3s ease"
+          }}>
+            <div style={{ width: 40, height: 4, background: "rgba(255,255,255,0.2)", borderRadius: "2px", margin: "12px auto 0" }} />
+            <QuestionPalette onClose={() => setShowPalette(false)} />
           </div>
         </div>
+      )}
+
+      {/* Mobile bottom nav */}
+      <div className="mobile-bottom-nav" style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 99,
+        background: "rgba(8,10,20,0.98)", backdropFilter: "blur(12px)",
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        padding: "8px 16px", display: "none",
+        alignItems: "center", justifyContent: "space-between", gap: "8px"
+      }}>
+        <button onClick={() => setCurrent(c => Math.max(0, c-1))} disabled={current===0} style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: current===0?"#333":"#fff", padding: "10px", borderRadius: "8px", cursor: current===0?"not-allowed":"pointer", fontSize: "13px" }}>← Prev</button>
+        <button onClick={() => setShowPalette(true)} style={{ flex: 1, background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>📋 {answered}/{TOTAL}</button>
+        <button onClick={() => setCurrent(c => Math.min(TOTAL-1, c+1))} disabled={current===TOTAL-1} style={{ flex: 1, background: current===TOTAL-1?"rgba(255,255,255,0.04)":"linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: current===TOTAL-1?"#333":"#000", padding: "10px", borderRadius: "8px", cursor: current===TOTAL-1?"not-allowed":"pointer", fontSize: "13px", fontWeight: 700 }}>Next →</button>
       </div>
     </div>
   );
@@ -1805,11 +2164,20 @@ export default function App() {
         .slider-wrapper:hover .slider-track { animation-play-state: paused; }
 
         /* Responsive */
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
         @media (max-width: 768px) {
           .desktop-nav { display: none !important; }
           .mobile-menu-btn { display: block !important; }
           .question-grid-sidebar { display: none !important; }
           .admin-sidebar { display: none; }
+          .exam-sidebar { display: none !important; }
+          .palette-btn-mobile { display: flex !important; }
+          .mobile-bottom-nav { display: flex !important; }
+        }
+        @media (min-width: 769px) {
+          .palette-btn-mobile { display: none !important; }
+          .mobile-bottom-nav { display: none !important; }
+          .exam-sidebar { display: block !important; }
         }
         @media (max-width: 480px) {
           .mobile-menu { display: flex !important; }
