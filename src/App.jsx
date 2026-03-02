@@ -5,6 +5,8 @@ import { useState, useEffect, useRef, useContext, createContext, useCallback } f
 // ============================================================
 const AuthContext = createContext(null);
 const useAuth = () => useContext(AuthContext);
+const ThemeContext = createContext("dark");
+const useTheme = () => useContext(ThemeContext);
 
 // ============================================================
 // SUPABASE CONFIG (replace with real values)
@@ -95,15 +97,17 @@ function useLocalStorage(key, initial) {
 // ============================================================
 
 // NAVBAR
-function Navbar({ page, setPage, user, onLogout }) {
+function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <nav style={{
       position: "fixed", top: 0, left: 0, right: 0, zIndex: 1000,
-      background: "rgba(8,10,20,0.95)", backdropFilter: "blur(12px)",
-      borderBottom: "1px solid rgba(255,215,0,0.15)",
+      background: dark ? "rgba(8,10,20,0.97)" : "rgba(255,255,255,0.97)",
+      backdropFilter: "blur(12px)",
+      borderBottom: dark ? "1px solid rgba(255,215,0,0.15)" : "1px solid rgba(0,0,0,0.08)",
       padding: "0 1rem", height: "60px",
-      display: "flex", alignItems: "center", justifyContent: "space-between"
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      transition: "background 0.3s, border-color 0.3s"
     }}>
       <div
         onClick={() => setPage("home")}
@@ -116,7 +120,7 @@ function Navbar({ page, setPage, user, onLogout }) {
           fontWeight: 900, fontSize: "16px", color: "#000"
         }}>M</div>
         <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: "18px", color: "#FFD700", letterSpacing: "-0.5px" }}>
-          Merit<span style={{ color: "#fff" }}>Matrix</span>
+          Merit<span style={{ color: dark ? "#fff" : "#111" }}>Matrix</span>
         </span>
       </div>
 
@@ -126,16 +130,25 @@ function Navbar({ page, setPage, user, onLogout }) {
           <button key={p} onClick={() => setPage(p)} style={{
             background: page===p ? "rgba(255,215,0,0.15)" : "transparent",
             border: page===p ? "1px solid rgba(255,215,0,0.3)" : "1px solid transparent",
-            color: page===p ? "#FFD700" : "#aaa",
+            color: page===p ? "#E6A800" : (dark ? "#aaa" : "#555"),
             padding: "6px 14px", borderRadius: "6px", cursor: "pointer",
             fontSize: "14px", fontWeight: 500, transition: "all 0.2s"
           }}>{l}</button>
         ))}
+        {/* Theme Toggle */}
+        <button onClick={() => setDark(d => !d)} title={dark ? "Switch to Light" : "Switch to Dark"} style={{
+          background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+          border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
+          color: dark ? "#FFD700" : "#555",
+          padding: "6px 10px", borderRadius: "8px", cursor: "pointer",
+          fontSize: "16px", lineHeight: 1, transition: "all 0.2s"
+        }}>{dark ? "☀️" : "🌙"}</button>
+
         {user ? (
           <>
             <button onClick={() => setPage("dashboard")} style={{
-              background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)",
-              color: "#FFD700", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "14px"
+              background: dark ? "rgba(255,215,0,0.1)" : "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.3)",
+              color: "#E6A800", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "14px", fontWeight: 600
             }}>Dashboard</button>
             {user.isAdmin && (
               <button onClick={() => setPage("admin")} style={{
@@ -144,8 +157,8 @@ function Navbar({ page, setPage, user, onLogout }) {
               }}>Admin</button>
             )}
             <button onClick={onLogout} style={{
-              background: "transparent", border: "1px solid #333",
-              color: "#666", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "14px"
+              background: "transparent", border: dark ? "1px solid #333" : "1px solid #ddd",
+              color: dark ? "#666" : "#888", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "14px"
             }}>Logout</button>
           </>
         ) : (
@@ -167,13 +180,13 @@ function Navbar({ page, setPage, user, onLogout }) {
       {menuOpen && (
         <div style={{
           position: "absolute", top: "60px", left: 0, right: 0,
-          background: "rgba(8,10,20,0.98)", borderBottom: "1px solid rgba(255,215,0,0.15)",
+          background: dark ? "rgba(8,10,20,0.98)" : "rgba(255,255,255,0.99)", borderBottom: dark ? "1px solid rgba(255,215,0,0.15)" : "1px solid rgba(0,0,0,0.08)",
           padding: "1rem", display: "flex", flexDirection: "column", gap: "8px"
         }} className="mobile-menu">
           {[["home","🏠 Home"],["exams","📚 Exams"],["pricing","💎 Pricing"]].map(([p,l]) => (
             <button key={p} onClick={() => { setPage(p); setMenuOpen(false); }} style={{
-              background: "transparent", border: "1px solid rgba(255,215,0,0.15)",
-              color: "#fff", padding: "10px 16px", borderRadius: "8px",
+              background: "transparent", border: dark ? "1px solid rgba(255,215,0,0.15)" : "1px solid rgba(0,0,0,0.1)",
+              color: dark ? "#fff" : "#111", padding: "10px 16px", borderRadius: "8px",
               cursor: "pointer", fontSize: "15px", textAlign: "left"
             }}>{l}</button>
           ))}
@@ -203,39 +216,68 @@ function Navbar({ page, setPage, user, onLogout }) {
 
 // LOGO SLIDER
 function LogoSlider({ logos = LOGOS_CONFIG }) {
-  // Duplicate for infinite scroll
+  const dark = useTheme();
+  const [hovered, setHovered] = useState(null);
   const items = [...logos, ...logos];
   return (
     <div style={{
-      background: "rgba(255,255,255,0.03)",
-      borderTop: "1px solid rgba(255,215,0,0.1)",
-      borderBottom: "1px solid rgba(255,215,0,0.1)",
-      padding: "24px 0", overflow: "hidden"
+      background: dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.03)",
+      borderTop: dark ? "1px solid rgba(255,215,0,0.1)" : "1px solid rgba(0,0,0,0.08)",
+      borderBottom: dark ? "1px solid rgba(255,215,0,0.1)" : "1px solid rgba(0,0,0,0.08)",
+      padding: "32px 0", overflow: "hidden"
     }}>
-      <p style={{ textAlign: "center", color: "#666", fontSize: "12px", letterSpacing: "2px", marginBottom: "20px", textTransform: "uppercase" }}>
-        Trusted Exam Partners
+      <p style={{ textAlign: "center", color: dark ? "#555" : "#999", fontSize: "11px", letterSpacing: "3px", marginBottom: "24px", textTransform: "uppercase", fontWeight: 600 }}>
+        We provide mock tests for these exams
       </p>
       <div style={{ overflow: "hidden" }} className="slider-wrapper">
         <div className="slider-track">
           {items.map((logo, i) => (
-            <div key={i} style={{
-              flex: "0 0 auto", width: "clamp(120px, 14vw, 180px)", height: "clamp(80px, 10vw, 120px)",
-              margin: "0 clamp(12px, 2vw, 20px)",
-              background: "rgba(255,255,255,0.05)",
-              borderRadius: "16px",
-              border: "1px solid rgba(255,255,255,0.08)",
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center",
-              padding: "12px", gap: "8px"
-            }}>
+            <div
+              key={i}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                flex: "0 0 auto",
+                width: "clamp(130px, 15vw, 200px)",
+                height: "clamp(90px, 11vw, 140px)",
+                margin: "0 clamp(12px, 2vw, 20px)",
+                background: hovered === i
+                  ? (dark ? "rgba(255,215,0,0.08)" : "rgba(255,215,0,0.12)")
+                  : (dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.8)"),
+                borderRadius: "18px",
+                border: hovered === i
+                  ? "1.5px solid rgba(255,215,0,0.5)"
+                  : (dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)"),
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                padding: "14px", gap: "10px",
+                cursor: "pointer",
+                transition: "all 0.25s ease",
+                transform: hovered === i ? "translateY(-6px) scale(1.04)" : "translateY(0) scale(1)",
+                boxShadow: hovered === i
+                  ? (dark ? "0 12px 32px rgba(255,215,0,0.15)" : "0 12px 32px rgba(0,0,0,0.12)")
+                  : "none",
+              }}>
               <img
                 src={`/logos/${logo.file}`}
                 alt={logo.name}
                 loading="lazy"
-                style={{ width: "clamp(40px, 5vw, 64px)", height: "clamp(40px, 5vw, 64px)", objectFit: "contain" }}
+                style={{
+                  width: "clamp(48px, 6vw, 76px)",
+                  height: "clamp(48px, 6vw, 76px)",
+                  objectFit: "contain",
+                  transition: "transform 0.25s ease",
+                  transform: hovered === i ? "scale(1.1)" : "scale(1)"
+                }}
                 onError={(e) => { e.target.style.display = "none"; }}
               />
-              <span style={{ color: "#aaa", fontSize: "clamp(9px, 1vw, 12px)", textAlign: "center", lineHeight: 1.3 }}>{logo.name}</span>
+              <span style={{
+                color: hovered === i ? (dark ? "#FFD700" : "#FF8C00") : (dark ? "#aaa" : "#666"),
+                fontSize: "clamp(9px, 1vw, 12px)",
+                textAlign: "center", lineHeight: 1.3,
+                fontWeight: hovered === i ? 700 : 400,
+                transition: "all 0.2s"
+              }}>{logo.name}</span>
             </div>
           ))}
         </div>
@@ -246,11 +288,12 @@ function LogoSlider({ logos = LOGOS_CONFIG }) {
 
 // HERO SECTION
 function HeroSection({ setPage }) {
+  const dark = useTheme();
   return (
     <section style={{
       minHeight: "100vh", display: "flex", alignItems: "center",
       justifyContent: "center", padding: "80px 1rem 60px",
-      background: "radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.08) 0%, transparent 60%)",
+      background: dark ? "radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.08) 0%, transparent 60%)" : "radial-gradient(ellipse at 50% 0%, rgba(255,180,0,0.12) 0%, transparent 60%)",
       position: "relative", overflow: "hidden"
     }}>
       {/* Background grid */}
@@ -273,7 +316,7 @@ function HeroSection({ setPage }) {
         <h1 style={{
           fontFamily: "'Sora', sans-serif", fontWeight: 900,
           fontSize: "clamp(2.2rem, 6vw, 4.5rem)",
-          lineHeight: 1.05, marginBottom: "20px", color: "#fff"
+          lineHeight: 1.05, marginBottom: "20px", color: dark ? "#fff" : "#111"
         }}>
           Crack Your{" "}
           <span style={{
@@ -283,7 +326,7 @@ function HeroSection({ setPage }) {
           <br />with Smart Practice
         </h1>
 
-        <p style={{ color: "#aaa", fontSize: "clamp(1rem, 2vw, 1.2rem)", lineHeight: 1.7, marginBottom: "36px", maxWidth: "600px", margin: "0 auto 36px" }}>
+        <p style={{ color: dark ? "#aaa" : "#555", fontSize: "clamp(1rem, 2vw, 1.2rem)", lineHeight: 1.7, marginBottom: "36px", maxWidth: "600px", margin: "0 auto 36px" }}>
           Mock tests, sectional tests & PYQs for Odisha Police, Army, Navy, Air Force, Agniveer, SSC GD and more. Real exam simulation. Real results.
         </p>
 
@@ -312,12 +355,12 @@ function HeroSection({ setPage }) {
         }}>
           {[["10+","Exam Categories"],["500+","Practice Tests"],["Live","Leaderboard"]].map(([n,l]) => (
             <div key={l} style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+              border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
               borderRadius: "12px", padding: "16px 24px", textAlign: "center"
             }}>
-              <div style={{ fontSize: "1.8rem", fontWeight: 900, color: "#FFD700", fontFamily: "'Sora',sans-serif" }}>{n}</div>
-              <div style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>{l}</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, color: "#E6A800", fontFamily: "'Sora',sans-serif" }}>{n}</div>
+              <div style={{ fontSize: "12px", color: dark ? "#666" : "#888", marginTop: "2px" }}>{l}</div>
             </div>
           ))}
         </div>
@@ -328,6 +371,7 @@ function HeroSection({ setPage }) {
 
 // EXAM CARD — live Supabase data with logo
 function ExamCard({ exam, setPage, setActiveExam }) {
+  const dark = useTheme();
   const color = exam.color || exam.organizations?.color || "#FFD700";
   const orgName = exam.organizations?.name || exam.org || "";
   const testCount = exam.test_count ?? 0;
@@ -337,9 +381,11 @@ function ExamCard({ exam, setPage, setActiveExam }) {
     <div
       onClick={() => { setActiveExam(exam); setPage("exam-detail"); }}
       style={{
-        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+        background: dark ? "rgba(255,255,255,0.04)" : "#fff",
+        border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: "16px", padding: "20px", cursor: "pointer",
-        transition: "all 0.2s", position: "relative", overflow: "hidden"
+        transition: "all 0.2s", position: "relative", overflow: "hidden",
+        boxShadow: dark ? "none" : "0 2px 8px rgba(0,0,0,0.06)"
       }}
       onMouseEnter={e => {
         e.currentTarget.style.border = `1px solid ${color}44`;
@@ -374,16 +420,16 @@ function ExamCard({ exam, setPage, setActiveExam }) {
           )}
         </div>
         <div>
-          <div style={{ color: "#666", fontSize: "11px", textTransform: "uppercase", letterSpacing: "1px" }}>{orgName}</div>
-          <div style={{ color: "#fff", fontSize: "15px", fontWeight: 700, lineHeight: 1.3 }}>{exam.name}</div>
+          <div style={{ color: dark ? "#666" : "#999", fontSize: "11px", textTransform: "uppercase", letterSpacing: "1px" }}>{orgName}</div>
+          <div style={{ color: dark ? "#fff" : "#111", fontSize: "15px", fontWeight: 700, lineHeight: 1.3 }}>{exam.name}</div>
         </div>
       </div>
       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-        {exam.has_mock      && <span style={{ background: "rgba(255,255,255,0.06)", color: "#aaa", fontSize: "10px", padding: "3px 8px", borderRadius: "4px" }}>Mock Tests</span>}
-        {exam.has_sectional && <span style={{ background: "rgba(255,255,255,0.06)", color: "#aaa", fontSize: "10px", padding: "3px 8px", borderRadius: "4px" }}>Sectional</span>}
-        {exam.has_pyq       && <span style={{ background: "rgba(255,255,255,0.06)", color: "#aaa", fontSize: "10px", padding: "3px 8px", borderRadius: "4px" }}>PYQ</span>}
+        {exam.has_mock      && <span style={{ background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", color: dark ? "#aaa" : "#777", fontSize: "10px", padding: "3px 8px", borderRadius: "4px" }}>Mock Tests</span>}
+        {exam.has_sectional && <span style={{ background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", color: dark ? "#aaa" : "#777", fontSize: "10px", padding: "3px 8px", borderRadius: "4px" }}>Sectional</span>}
+        {exam.has_pyq       && <span style={{ background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", color: dark ? "#aaa" : "#777", fontSize: "10px", padding: "3px 8px", borderRadius: "4px" }}>PYQ</span>}
       </div>
-      <div style={{ marginTop: "12px", color: "#666", fontSize: "12px" }}>
+      <div style={{ marginTop: "12px", color: dark ? "#666" : "#888", fontSize: "12px" }}>
         {testCount} test{testCount !== 1 ? "s" : ""} available
       </div>
     </div>
@@ -392,6 +438,7 @@ function ExamCard({ exam, setPage, setActiveExam }) {
 
 // EXAMS PAGE — fully dynamic from Supabase
 function ExamsPage({ setPage, setActiveExam }) {
+  const dark = useTheme();
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
@@ -424,15 +471,15 @@ function ExamsPage({ setPage, setActiveExam }) {
 
   return (
     <div style={{ padding: "80px 1rem 60px", maxWidth: "1200px", margin: "0 auto" }}>
-      <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: "clamp(1.8rem,4vw,2.8rem)", fontWeight: 900, color: "#fff", marginBottom: "8px" }}>All Exams</h1>
-      <p style={{ color: "#666", marginBottom: "32px" }}>Choose your exam and start preparing today</p>
+      <h1 style={{ fontFamily: "'Sora',sans-serif", fontSize: "clamp(1.8rem,4vw,2.8rem)", fontWeight: 900, color: dark ? "#fff" : "#111", marginBottom: "8px" }}>All Exams</h1>
+      <p style={{ color: dark ? "#666" : "#777", marginBottom: "32px" }}>Choose your exam and start preparing today</p>
 
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "28px" }}>
         {orgs.map(o => (
           <button key={o} onClick={() => setFilter(o)} style={{
-            background: filter===o ? "rgba(255,215,0,0.15)" : "rgba(255,255,255,0.05)",
-            border: filter===o ? "1px solid rgba(255,215,0,0.4)" : "1px solid rgba(255,255,255,0.08)",
-            color: filter===o ? "#FFD700" : "#888", padding: "7px 16px",
+            background: filter===o ? "rgba(255,215,0,0.15)" : (dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"),
+            border: filter===o ? "1px solid rgba(255,215,0,0.4)" : (dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)"),
+            color: filter===o ? "#E6A800" : (dark ? "#888" : "#666"), padding: "7px 16px",
             borderRadius: "20px", cursor: "pointer", fontSize: "13px", fontWeight: filter===o?700:400
           }}>{o}</button>
         ))}
@@ -446,7 +493,7 @@ function ExamsPage({ setPage, setActiveExam }) {
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0", color: "#555" }}>
           <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📭</div>
-          <p>No published exams yet. Check back soon!</p>
+          <p style={{ color: dark ? "#555" : "#888" }}>No published exams yet. Check back soon!</p>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "16px" }}>
@@ -461,6 +508,7 @@ function ExamsPage({ setPage, setActiveExam }) {
 
 // EXAM DETAIL PAGE — fully dynamic from Supabase
 function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
+  const dark = useTheme();
   const [activeTab, setActiveTab] = useState("mock");
   const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -482,14 +530,14 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
   return (
     <div style={{ padding: "80px 1rem 60px", maxWidth: "900px", margin: "0 auto" }}>
       <button onClick={() => setPage("exams")} style={{
-        background: "transparent", border: "1px solid rgba(255,255,255,0.15)",
-        color: "#aaa", padding: "8px 16px", borderRadius: "8px",
+        background: "transparent", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)",
+        color: dark ? "#aaa" : "#777", padding: "8px 16px", borderRadius: "8px",
         cursor: "pointer", marginBottom: "24px", fontSize: "14px"
       }}>← Back to Exams</button>
 
       {/* Header */}
       <div style={{
-        background: color + "15", border: `1px solid ${color}44`,
+        background: dark ? color + "15" : color + "12", border: `1px solid ${color}44`,
         borderRadius: "16px", padding: "24px", marginBottom: "28px",
         display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap"
       }}>
@@ -500,14 +548,14 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
           fontSize: "26px", fontWeight: 900, color: color
         }}>{orgName.charAt(0)}</div>
         <div>
-          <div style={{ color: "#aaa", fontSize: "13px" }}>{orgName}</div>
-          <h1 style={{ color: "#fff", fontSize: "clamp(1.3rem,3vw,1.8rem)", fontWeight: 800, margin: 0 }}>{exam.name}</h1>
-          {exam.description && <p style={{ color: "#666", fontSize: "13px", margin: "4px 0 0" }}>{exam.description}</p>}
+          <div style={{ color: dark ? "#aaa" : "#777", fontSize: "13px" }}>{orgName}</div>
+          <h1 style={{ color: dark ? "#fff" : "#111", fontSize: "clamp(1.3rem,3vw,1.8rem)", fontWeight: 800, margin: 0 }}>{exam.name}</h1>
+          {exam.description && <p style={{ color: dark ? "#666" : "#888", fontSize: "13px", margin: "4px 0 0" }}>{exam.description}</p>}
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "20px", background: "rgba(255,255,255,0.05)", borderRadius: "10px", padding: "4px" }}>
+      <div style={{ display: "flex", gap: "4px", marginBottom: "20px", background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", borderRadius: "10px", padding: "4px" }}>
         {[["mock","Mock Tests"],["sectional","Sectional"],["pyq","PYQ"]].map(([k,l]) => (
           <button key={k} onClick={() => setActiveTab(k)} style={{
             flex: 1, background: activeTab===k ? "rgba(255,215,0,0.15)" : "transparent",
@@ -525,7 +573,7 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
       ) : byType[activeTab].length === 0 ? (
         <div style={{
           textAlign: "center", padding: "48px",
-          background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)",
+          background: dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: dark ? "1px dashed rgba(255,255,255,0.08)" : "1px dashed rgba(0,0,0,0.12)",
           borderRadius: "14px", color: "#555"
         }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📭</div>
@@ -535,13 +583,15 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {byType[activeTab].map(test => (
             <div key={test.id} style={{
-              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              background: dark ? "rgba(255,255,255,0.04)" : "#fff",
+              border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
               borderRadius: "12px", padding: "16px 20px",
-              display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px"
+              display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px",
+              boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.06)"
             }}>
               <div>
-                <div style={{ color: "#fff", fontWeight: 600, fontSize: "15px" }}>{test.name}</div>
-                <div style={{ color: "#666", fontSize: "13px", marginTop: "4px" }}>
+                <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "15px" }}>{test.name}</div>
+                <div style={{ color: dark ? "#666" : "#888", fontSize: "13px", marginTop: "4px" }}>
                   {test.duration_minutes} min • {test.total_marks} Marks • -{test.negative_value} negative
                 </div>
                 {test.instructions && <div style={{ color: "#555", fontSize: "12px", marginTop: "4px" }}>{test.instructions}</div>}
@@ -570,6 +620,7 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
 
 // AUTH PAGE — with email verification flow
 function AuthPage({ setPage, onLogin }) {
+  const dark = useTheme();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -659,8 +710,10 @@ function AuthPage({ setPage, onLogin }) {
   };
 
   const inputStyle = {
-    width: "100%", background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.15)", color: "#fff",
+    width: "100%",
+    background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+    border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)",
+    color: dark ? "#fff" : "#111",
     padding: "14px 16px", borderRadius: "10px", fontSize: "16px",
     outline: "none", boxSizing: "border-box"
   };
@@ -675,20 +728,21 @@ function AuthPage({ setPage, onLogin }) {
       }}>
         <div style={{
           width: "100%", maxWidth: "420px", textAlign: "center",
-          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: "20px", padding: "40px"
+          background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+          borderRadius: "20px", padding: "40px",
+          boxShadow: dark ? "none" : "0 8px 40px rgba(0,0,0,0.1)"
         }}>
           <div style={{ fontSize: "3.5rem", marginBottom: "20px" }}>📧</div>
-          <h2 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "1.6rem", marginBottom: "12px" }}>
+          <h2 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "1.6rem", marginBottom: "12px" }}>
             Check your email
           </h2>
-          <p style={{ color: "#aaa", fontSize: "14px", lineHeight: 1.7, marginBottom: "8px" }}>
+          <p style={{ color: dark ? "#aaa" : "#666", fontSize: "14px", lineHeight: 1.7, marginBottom: "8px" }}>
             We sent a verification link to
           </p>
           <p style={{ color: "#FFD700", fontWeight: 700, fontSize: "15px", marginBottom: "24px", wordBreak: "break-all" }}>
             {verifyEmail}
           </p>
-          <p style={{ color: "#666", fontSize: "13px", lineHeight: 1.7, marginBottom: "28px" }}>
+          <p style={{ color: dark ? "#666" : "#888", fontSize: "13px", lineHeight: 1.7, marginBottom: "28px" }}>
             Click the link in the email to verify your account and get started. Check your spam folder if you don't see it.
           </p>
           <div style={{ background: "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.15)", borderRadius: "12px", padding: "14px", marginBottom: "24px" }}>
@@ -716,11 +770,12 @@ function AuthPage({ setPage, onLogin }) {
     <div style={{
       minHeight: "100vh", display: "flex", alignItems: "center",
       justifyContent: "center", padding: "80px 1rem 40px",
-      background: "radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.06) 0%, transparent 60%)"
+      background: dark ? "radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.06) 0%, transparent 60%)" : "radial-gradient(ellipse at 50% 0%, rgba(255,180,0,0.08) 0%, transparent 60%)"
     }}>
       <div style={{
         width: "100%", maxWidth: "420px",
-        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+        background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+        boxShadow: dark ? "none" : "0 8px 40px rgba(0,0,0,0.1)",
         borderRadius: "20px", padding: "clamp(24px,5vw,40px)"
       }}>
         <div style={{ textAlign: "center", marginBottom: "28px" }}>
@@ -730,10 +785,10 @@ function AuthPage({ setPage, onLogin }) {
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: "22px", fontWeight: 900, color: "#000", margin: "0 auto 12px"
           }}>M</div>
-          <h2 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0 }}>
+          <h2 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0 }}>
             {mode === "login" ? "Welcome Back" : "Create Account"}
           </h2>
-          <p style={{ color: "#666", fontSize: "14px", marginTop: "6px" }}>
+          <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginTop: "6px" }}>
             {mode === "login" ? "Sign in to your account" : "Join MeritMatrix today"}
           </p>
         </div>
@@ -789,6 +844,7 @@ function AuthPage({ setPage, onLogin }) {
 }
 // DASHBOARD
 function DashboardPage({ user, setPage }) {
+  const dark = useTheme();
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -807,10 +863,10 @@ function DashboardPage({ user, setPage }) {
   return (
     <div style={{ padding: "80px 1rem 60px", maxWidth: "1100px", margin: "0 auto" }}>
       <div style={{ marginBottom: "28px" }}>
-        <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "clamp(1.5rem,4vw,2.2rem)", margin: 0 }}>
+        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "clamp(1.5rem,4vw,2.2rem)", margin: 0 }}>
           Welcome back 👋
         </h1>
-        <p style={{ color: "#666", fontSize: "14px", marginTop: "4px" }}>{user.email}</p>
+        <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginTop: "4px" }}>{user.email}</p>
       </div>
 
       {/* Stats */}
@@ -824,10 +880,12 @@ function DashboardPage({ user, setPage }) {
           ["⚡ Streak", "0 days", "#fb923c"],
         ].map(([l,v,c]) => (
           <div key={l} style={{
-            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: "14px", padding: "20px"
+            background: dark ? "rgba(255,255,255,0.04)" : "#fff",
+            border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+            borderRadius: "14px", padding: "20px",
+            boxShadow: dark ? "none" : "0 2px 8px rgba(0,0,0,0.05)"
           }}>
-            <div style={{ color: "#666", fontSize: "12px", marginBottom: "8px" }}>{l}</div>
+            <div style={{ color: dark ? "#666" : "#888", fontSize: "12px", marginBottom: "8px" }}>{l}</div>
             <div style={{ color: c, fontSize: "1.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>{v}</div>
           </div>
         ))}
@@ -835,7 +893,7 @@ function DashboardPage({ user, setPage }) {
 
       {/* Quick Actions */}
       <div style={{ marginBottom: "32px" }}>
-        <h2 style={{ color: "#aaa", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Quick Actions</h2>
+        <h2 style={{ color: dark ? "#aaa" : "#888", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Quick Actions</h2>
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <button onClick={() => setPage("exams")} style={{
             background: "linear-gradient(135deg, #FFD700, #FF8C00)",
@@ -851,12 +909,13 @@ function DashboardPage({ user, setPage }) {
 
       {/* Recent Attempts */}
       <div>
-        <h2 style={{ color: "#aaa", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Recent Attempts</h2>
+        <h2 style={{ color: dark ? "#aaa" : "#888", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Recent Attempts</h2>
         {loading ? (
           <div style={{ color: "#666", padding: "20px 0" }}>Loading...</div>
         ) : attempts.length === 0 ? (
           <div style={{
-            background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)",
+            background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+            border: dark ? "1px dashed rgba(255,255,255,0.1)" : "1px dashed rgba(0,0,0,0.12)",
             borderRadius: "16px", padding: "40px", textAlign: "center"
           }}>
             <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📚</div>
@@ -871,12 +930,13 @@ function DashboardPage({ user, setPage }) {
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {attempts.map((a, i) => (
               <div key={i} style={{
-                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                background: dark ? "rgba(255,255,255,0.04)" : "#fff",
+                border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
                 borderRadius: "10px", padding: "14px 18px",
                 display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px"
               }}>
                 <div>
-                  <div style={{ color: "#fff", fontWeight: 600, fontSize: "14px" }}>{a.tests?.name || "Test"}</div>
+                  <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{a.tests?.name || "Test"}</div>
                   <div style={{ color: "#555", fontSize: "12px" }}>{new Date(a.created_at).toLocaleDateString()}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -894,6 +954,7 @@ function DashboardPage({ user, setPage }) {
 
 // SECURE EXAM INTERFACE — Advanced
 function ExamInterface({ setPage, activeTest }) {
+  const dark = useTheme();
   const { user } = useAuth();
   const testName = activeTest?.name || "Mock Test";
   const DURATION = (activeTest?.duration || 10) * 60;
@@ -1008,7 +1069,7 @@ function ExamInterface({ setPage, activeTest }) {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", background: "#080a14" }}>
       <div style={{ width: 52, height: 52, border: "4px solid rgba(255,215,0,0.15)", borderTop: "4px solid #FFD700", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <p style={{ color: "#aaa", fontFamily: "'Sora',sans-serif" }}>Loading questions...</p>
+      <p style={{ color: dark ? "#aaa" : "#555", fontFamily: "'Sora',sans-serif" }}>Loading questions...</p>
       <p style={{ color: "#555", fontSize: "12px" }}>{testName}</p>
     </div>
   );
@@ -1017,8 +1078,8 @@ function ExamInterface({ setPage, activeTest }) {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", background: "#080a14" }}>
       <div style={{ textAlign: "center", maxWidth: "500px" }}>
         <div style={{ fontSize: "3.5rem", marginBottom: "16px" }}>⚠️</div>
-        <h2 style={{ color: "#fff", fontWeight: 700, marginBottom: "12px", fontFamily: "'Sora',sans-serif" }}>No Questions Found</h2>
-        <p style={{ color: "#666", fontSize: "14px", marginBottom: "24px", lineHeight: 1.6 }}>{loadError}</p>
+        <h2 style={{ color: dark ? "#fff" : "#111", fontWeight: 700, marginBottom: "12px", fontFamily: "'Sora',sans-serif" }}>No Questions Found</h2>
+        <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginBottom: "24px", lineHeight: 1.6 }}>{loadError}</p>
         <button onClick={() => setPage("exams")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "10px", cursor: "pointer", fontWeight: 700 }}>Back to Exams</button>
       </div>
     </div>
@@ -1056,7 +1117,7 @@ function ExamInterface({ setPage, activeTest }) {
     const resultTabs = ["overview", "solutions"];
 
     return (
-      <div style={{ minHeight: "100vh", background: "#080a14", padding: "20px 1rem 60px" }}>
+      <div style={{ minHeight: "100vh", background: dark ? "#080a14" : "#f5f6fa", padding: "20px 1rem 60px" }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}`}</style>
         <div style={{ maxWidth: "800px", margin: "0 auto" }}>
 
@@ -1064,14 +1125,14 @@ function ExamInterface({ setPage, activeTest }) {
           <div style={{ textAlign: "center", marginBottom: "28px", animation: "fadeUp 0.5s ease" }}>
             <div style={{ fontSize: "4rem", marginBottom: "8px" }}>{grade.emoji}</div>
             <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(1.6rem,4vw,2.4rem)", color: "#fff", marginBottom: "4px" }}>Test Completed!</h1>
-            <p style={{ color: "#666", fontSize: "14px", marginBottom: "12px" }}>{testName}</p>
+            <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginBottom: "12px" }}>{testName}</p>
             <span style={{ background: grade.color + "22", border: `1px solid ${grade.color}55`, color: grade.color, padding: "4px 16px", borderRadius: "20px", fontSize: "14px", fontWeight: 700 }}>{grade.label}</span>
           </div>
 
           {/* Score hero */}
           <div style={{ background: "linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.05))", border: "1px solid rgba(255,215,0,0.2)", borderRadius: "20px", padding: "28px", marginBottom: "20px", textAlign: "center", animation: "fadeUp 0.6s ease" }}>
             <div style={{ fontSize: "clamp(3rem,8vw,5rem)", fontWeight: 900, fontFamily: "'Sora',sans-serif", color: "#FFD700", lineHeight: 1 }}>{pct}%</div>
-            <div style={{ color: "#aaa", fontSize: "15px", marginTop: "6px" }}>{score.toFixed(1)} out of {totalMarks} marks</div>
+            <div style={{ color: dark ? "#aaa" : "#777", fontSize: "15px", marginTop: "6px" }}>{score.toFixed(1)} out of {totalMarks} marks</div>
             <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", margin: "16px 0 8px", overflow: "hidden" }}>
               <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#FFD700,#FF8C00)", borderRadius: "8px", transition: "width 1.5s ease" }} />
             </div>
@@ -1107,13 +1168,13 @@ function ExamInterface({ setPage, activeTest }) {
             <div style={{ animation: "fadeUp 0.3s ease" }}>
               {/* Subject Breakdown */}
               <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", marginBottom: "16px" }}>
-                <h3 style={{ color: "#aaa", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>Subject-wise Performance</h3>
+                <h3 style={{ color: dark ? "#aaa" : "#888", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>Subject-wise Performance</h3>
                 {Object.entries(subjects).map(([sub, d]) => {
                   const spct = Math.round(d.correct / d.total * 100);
                   return (
                     <div key={sub} style={{ marginBottom: "16px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                        <span style={{ color: "#ddd", fontSize: "14px", fontWeight: 600 }}>{sub}</span>
+                        <span style={{ color: dark ? "#ddd" : "#222", fontSize: "14px", fontWeight: 600 }}>{sub}</span>
                         <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
                           <span style={{ color: "#4ade80" }}>✓ {d.correct}</span>
                           <span style={{ color: "#ff6b6b" }}>✗ {d.wrong}</span>
@@ -1131,7 +1192,7 @@ function ExamInterface({ setPage, activeTest }) {
 
               {/* Performance analysis */}
               <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", marginBottom: "20px" }}>
-                <h3 style={{ color: "#aaa", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Performance Analysis</h3>
+                <h3 style={{ color: dark ? "#aaa" : "#888", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Performance Analysis</h3>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: "10px", padding: "12px" }}>
                     <div style={{ color: "#4ade80", fontSize: "11px", marginBottom: "4px" }}>ACCURACY</div>
@@ -1176,14 +1237,14 @@ function ExamInterface({ setPage, activeTest }) {
                       >
                         <div style={{ width: 28, height: 28, borderRadius: "50%", background: statusC + "22", border: `1px solid ${statusC}55`, display: "flex", alignItems: "center", justifyContent: "center", color: statusC, fontWeight: 800, fontSize: "13px", flexShrink: 0 }}>{statusIcon}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ color: "#888", fontSize: "11px", marginBottom: "4px" }}>Q{i+1} • {q.subject}</div>
-                          <div style={{ color: "#ddd", fontSize: "14px", lineHeight: 1.5 }}>{q.text.length > 100 ? q.text.slice(0,100) + "..." : q.text}</div>
+                          <div style={{ color: dark ? "#888" : "#aaa", fontSize: "11px", marginBottom: "4px" }}>Q{i+1} • {q.subject}</div>
+                          <div style={{ color: dark ? "#ddd" : "#333", fontSize: "14px", lineHeight: 1.5 }}>{q.text.length > 100 ? q.text.slice(0,100) + "..." : q.text}</div>
                         </div>
                         <div style={{ color: "#555", fontSize: "18px", flexShrink: 0 }}>{showSolution === i ? "▲" : "▼"}</div>
                       </div>
                       {showSolution === i && (
                         <div style={{ padding: "0 18px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                          <div style={{ paddingTop: "14px", marginBottom: "12px", color: "#ccc", fontSize: "14px", lineHeight: 1.7 }}>{q.text}</div>
+                          <div style={{ paddingTop: "14px", marginBottom: "12px", color: dark ? "#ccc" : "#333", fontSize: "14px", lineHeight: 1.7 }}>{q.text}</div>
                           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
                             {q.options.map((opt, idx) => {
                               const isUserChoice = userAns === idx;
@@ -1237,7 +1298,7 @@ function ExamInterface({ setPage, activeTest }) {
   const QuestionPalette = ({ onClose }) => (
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-        <div style={{ color: "#fff", fontSize: "14px", fontWeight: 700 }}>Question Palette</div>
+        <div style={{ color: dark ? "#fff" : "#111", fontSize: "14px", fontWeight: 700 }}>Question Palette</div>
         {onClose && <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#aaa", fontSize: "20px", cursor: "pointer", lineHeight: 1 }}>×</button>}
       </div>
       {/* Legend */}
@@ -1313,15 +1374,15 @@ function ExamInterface({ setPage, activeTest }) {
       {/* Top Bar */}
       <div style={{
         position: "sticky", top: 0, zIndex: 100,
-        background: "rgba(8,10,20,0.98)", backdropFilter: "blur(12px)",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        background: dark ? "rgba(8,10,20,0.98)" : "rgba(255,255,255,0.98)", backdropFilter: "blur(12px)",
+        borderBottom: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)",
         padding: "0 16px", height: "58px",
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px"
       }}>
         {/* Left: Test name */}
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
-          <div style={{ color: "#555", fontSize: "11px" }}>Q{current+1}/{TOTAL} • {answered} answered</div>
+          <div style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
+          <div style={{ color: dark ? "#555" : "#888", fontSize: "11px" }}>Q{current+1}/{TOTAL} • {answered} answered</div>
         </div>
 
         {/* Center: Timer */}
@@ -1374,7 +1435,7 @@ function ExamInterface({ setPage, activeTest }) {
 
           {/* Question card */}
           <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "clamp(16px,3vw,28px)", marginBottom: "14px" }}>
-            <p style={{ color: "#fff", fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.8, margin: 0, fontWeight: 500 }}>{q.text}</p>
+            <p style={{ color: dark ? "#fff" : "#111", fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.8, margin: 0, fontWeight: 500 }}>{q.text}</p>
           </div>
 
           {/* Options */}
@@ -1383,9 +1444,9 @@ function ExamInterface({ setPage, activeTest }) {
               const selected = answers[q.id] === idx;
               return (
                 <button key={idx} onClick={() => setAnswers(prev => ({ ...prev, [q.id]: idx }))} style={{
-                  background: selected ? "rgba(255,215,0,0.12)" : "rgba(255,255,255,0.04)",
-                  border: selected ? "2px solid rgba(255,215,0,0.6)" : "1px solid rgba(255,255,255,0.09)",
-                  color: selected ? "#FFD700" : "#ddd",
+                  background: selected ? "rgba(255,215,0,0.12)" : (dark ? "rgba(255,255,255,0.04)" : "#fafafa"),
+                  border: selected ? "2px solid rgba(255,215,0,0.6)" : (dark ? "1px solid rgba(255,255,255,0.09)" : "1px solid rgba(0,0,0,0.1)"),
+                  color: selected ? "#E6A800" : (dark ? "#ddd" : "#222"),
                   padding: "clamp(12px,2vw,16px) clamp(14px,2vw,20px)",
                   borderRadius: "12px", cursor: "pointer", textAlign: "left",
                   fontSize: "clamp(14px,2vw,16px)", transition: "all 0.15s",
@@ -1437,8 +1498,10 @@ function ExamInterface({ setPage, activeTest }) {
         <div className="exam-sidebar" style={{
           width: "250px", flexShrink: 0, alignSelf: "flex-start",
           position: "sticky", top: "74px",
-          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: "16px", overflow: "hidden"
+          background: dark ? "rgba(255,255,255,0.03)" : "#fff",
+          border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+          borderRadius: "16px", overflow: "hidden",
+          boxShadow: dark ? "none" : "0 2px 10px rgba(0,0,0,0.06)"
         }}>
           <QuestionPalette />
         </div>
@@ -1449,8 +1512,8 @@ function ExamInterface({ setPage, activeTest }) {
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
           <div onClick={() => setShowPalette(false)} style={{ flex: 1, background: "rgba(0,0,0,0.6)" }} />
           <div style={{
-            background: "#0f1120", borderRadius: "20px 20px 0 0",
-            border: "1px solid rgba(255,255,255,0.1)",
+            background: dark ? "#0f1120" : "#fff", borderRadius: "20px 20px 0 0",
+            border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
             maxHeight: "80vh", overflowY: "auto",
             animation: "slideUp 0.3s ease"
           }}>
@@ -1463,8 +1526,8 @@ function ExamInterface({ setPage, activeTest }) {
       {/* Mobile bottom nav */}
       <div className="mobile-bottom-nav" style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 99,
-        background: "rgba(8,10,20,0.98)", backdropFilter: "blur(12px)",
-        borderTop: "1px solid rgba(255,255,255,0.08)",
+        background: dark ? "rgba(8,10,20,0.98)" : "rgba(255,255,255,0.98)", backdropFilter: "blur(12px)",
+        borderTop: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)",
         padding: "8px 16px", display: "none",
         alignItems: "center", justifyContent: "space-between", gap: "8px"
       }}>
@@ -1478,6 +1541,7 @@ function ExamInterface({ setPage, activeTest }) {
 
 // PRICING PAGE
 function PricingPage({ setPage }) {
+  const dark = useTheme();
   const plans = [
     { name: "Free", price: 0, period: "forever", features: ["3 free mock tests per exam","Basic performance stats","Question review","Mobile app access"], cta: "Get Started", highlight: false },
     { name: "Pro", price: 299, period: "month", features: ["Unlimited mock tests","Sectional tests","PYQ papers","Advanced analytics","Live leaderboard","Priority support","Offline download"], cta: "Start Pro", highlight: true },
@@ -1486,16 +1550,17 @@ function PricingPage({ setPage }) {
   return (
     <div style={{ padding: "80px 1rem 60px", maxWidth: "1100px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "48px" }}>
-        <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(2rem,5vw,3rem)", color: "#fff" }}>
+        <h1 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(2rem,5vw,3rem)", color: dark ? "#fff" : "#111" }}>
           Simple, Transparent Pricing
         </h1>
-        <p style={{ color: "#666", fontSize: "16px", marginTop: "8px" }}>No hidden charges. Cancel anytime.</p>
+        <p style={{ color: dark ? "#666" : "#777", fontSize: "16px", marginTop: "8px" }}>No hidden charges. Cancel anytime.</p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px" }}>
         {plans.map(plan => (
           <div key={plan.name} style={{
-            background: plan.highlight ? "rgba(255,215,0,0.06)" : "rgba(255,255,255,0.03)",
-            border: plan.highlight ? "1px solid rgba(255,215,0,0.4)" : "1px solid rgba(255,255,255,0.08)",
+            background: plan.highlight ? (dark ? "rgba(255,215,0,0.06)" : "rgba(255,215,0,0.08)") : (dark ? "rgba(255,255,255,0.03)" : "#fff"),
+            border: plan.highlight ? "1px solid rgba(255,215,0,0.4)" : (dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)"),
+            boxShadow: dark ? (plan.highlight ? "0 0 40px rgba(255,215,0,0.08)" : "none") : (plan.highlight ? "0 0 40px rgba(255,180,0,0.15)" : "0 2px 12px rgba(0,0,0,0.06)"),
             borderRadius: "20px", padding: "32px", position: "relative",
             boxShadow: plan.highlight ? "0 0 40px rgba(255,215,0,0.08)" : "none"
           }}>
@@ -1507,9 +1572,9 @@ function PricingPage({ setPage }) {
                 fontSize: "12px", fontWeight: 700, whiteSpace: "nowrap"
               }}>Most Popular</div>
             )}
-            <h3 style={{ color: plan.highlight ? "#FFD700" : "#fff", fontSize: "1.3rem", fontWeight: 800, margin: "0 0 8px" }}>{plan.name}</h3>
+            <h3 style={{ color: plan.highlight ? "#E6A800" : (dark ? "#fff" : "#111"), fontSize: "1.3rem", fontWeight: 800, margin: "0 0 8px" }}>{plan.name}</h3>
             <div style={{ marginBottom: "20px" }}>
-              <span style={{ color: "#fff", fontSize: "2.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>
+              <span style={{ color: dark ? "#fff" : "#111", fontSize: "2.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>
                 {plan.price === 0 ? "Free" : `₹${plan.price}`}
               </span>
               {plan.price > 0 && <span style={{ color: "#666", fontSize: "14px" }}>/{plan.period}</span>}
@@ -1518,7 +1583,7 @@ function PricingPage({ setPage }) {
               {plan.features.map(f => (
                 <div key={f} style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
                   <span style={{ color: "#4ade80", flexShrink: 0 }}>✓</span>
-                  <span style={{ color: "#aaa", fontSize: "14px" }}>{f}</span>
+                  <span style={{ color: dark ? "#aaa" : "#555", fontSize: "14px" }}>{f}</span>
                 </div>
               ))}
             </div>
@@ -1526,7 +1591,7 @@ function PricingPage({ setPage }) {
               width: "100%",
               background: plan.highlight ? "linear-gradient(135deg, #FFD700, #FF8C00)" : "rgba(255,255,255,0.08)",
               border: plan.highlight ? "none" : "1px solid rgba(255,255,255,0.15)",
-              color: plan.highlight ? "#000" : "#fff",
+              color: plan.highlight ? "#000" : (dark ? "#fff" : "#333"),
               padding: "14px", borderRadius: "10px", cursor: "pointer",
               fontSize: "15px", fontWeight: 700
             }}>{plan.cta}</button>
@@ -1539,6 +1604,7 @@ function PricingPage({ setPage }) {
 
 // ADMIN EXAMS COMPONENT
 function AdminExams({ user }) {
+  const dark = useTheme();
   const [exams, setExams] = useState([]);
   const [orgs, setOrgs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1611,12 +1677,12 @@ function AdminExams({ user }) {
     loadTests(examId);
   };
 
-  const inputS = { width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
+  const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
 
   return (
     <div style={{ maxWidth: "900px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
-        <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Exams & Tests</h1>
+        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Exams & Tests</h1>
         <button onClick={() => { setShowForm(true); setEditExam(null); setExamForm(emptyExam); }} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>+ New Exam</button>
       </div>
 
@@ -1670,7 +1736,7 @@ function AdminExams({ user }) {
                     {expandedExam === exam.id ? "▼" : "▶"}
                   </button>
                   <div>
-                    <div style={{ color: "#fff", fontWeight: 600 }}>{exam.name}</div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600 }}>{exam.name}</div>
                     <div style={{ color: "#555", fontSize: "12px" }}>{exam.organizations?.name || "No org"} • {exam.is_published ? <span style={{ color: "#4ade80" }}>Published</span> : <span style={{ color: "#ff6b6b" }}>Draft</span>} {exam.is_free && <span style={{ color: "#4ade80" }}> • Free</span>}</div>
                   </div>
                 </div>
@@ -1745,6 +1811,7 @@ function AdminExams({ user }) {
 
 // ADMIN USERS COMPONENT
 function AdminUsers({ user }) {
+  const dark = useTheme();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1765,14 +1832,14 @@ function AdminUsers({ user }) {
   return (
     <div style={{ maxWidth: "900px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
-        <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Users</h1>
+        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Users</h1>
         <div style={{ color: "#666", fontSize: "13px" }}>Total: {users.length}</div>
       </div>
 
       <input
         placeholder="Search by email or ID..."
         value={search} onChange={e => setSearch(e.target.value)}
-        style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" }}
+        style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" }}
       />
 
       {loading ? <div style={{ color: "#666" }}>Loading users...</div> : (
@@ -1781,7 +1848,7 @@ function AdminUsers({ user }) {
           {filtered.map(u => (
             <div key={u.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "10px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
               <div>
-                <div style={{ color: "#fff", fontWeight: 600, fontSize: "14px" }}>{u.email || "No email"}</div>
+                <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{u.email || "No email"}</div>
                 <div style={{ color: "#555", fontSize: "11px", fontFamily: "monospace" }}>{u.id}</div>
               </div>
               <div style={{ color: "#555", fontSize: "12px" }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : ""}</div>
@@ -1795,6 +1862,7 @@ function AdminUsers({ user }) {
 
 // ADMIN PANEL
 function AdminPanel({ user }) {
+  const dark = useTheme();
   const [activeSection, setActiveSection] = useState("overview");
   const [csvContent, setCsvContent] = useState("");
   const [csvPreview, setCsvPreview] = useState([]);
@@ -1878,7 +1946,7 @@ function AdminPanel({ user }) {
       {/* Sidebar */}
       <div style={{
         width: "200px", flexShrink: 0,
-        background: "rgba(255,50,50,0.05)", borderRight: "1px solid rgba(255,50,50,0.15)",
+        background: dark ? "rgba(255,50,50,0.05)" : "rgba(255,50,50,0.03)", borderRight: dark ? "1px solid rgba(255,50,50,0.15)" : "1px solid rgba(255,50,50,0.12)",
         padding: "20px 0", position: "sticky", top: 0, height: "100vh"
       }} className="admin-sidebar">
         <div style={{ padding: "0 16px 16px", color: "#ff6b6b", fontSize: "12px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase" }}>
@@ -1898,7 +1966,7 @@ function AdminPanel({ user }) {
       <div style={{ flex: 1, padding: "24px", minWidth: 0, overflowX: "auto" }}>
         {activeSection === "overview" && (
           <div>
-            <h1 style={{ color: "#fff", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "24px" }}>Dashboard Overview</h1>
+            <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "24px" }}>Dashboard Overview</h1>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: "16px" }}>
               {[["Total Users","—","#818cf8"],["Total Tests","—","#4ade80"],["Attempts","—","#FFD700"],["Questions","—","#fb923c"]].map(([l,v,c]) => (
                 <div key={l} style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"12px", padding:"20px" }}>
@@ -1997,6 +2065,7 @@ function AdminPanel({ user }) {
 
 // FEATURES SECTION
 function FeaturesSection() {
+  const dark = useTheme();
   const features = [
     { icon: "🛡️", title: "Secure Exam Interface", desc: "Tab switch detection, anti-cheat system, auto-submit on suspicious activity" },
     { icon: "📊", title: "Real Analytics", desc: "Score, percentile, subject-wise breakdown, time analysis after every test" },
@@ -2008,19 +2077,21 @@ function FeaturesSection() {
   return (
     <section style={{ padding: "80px 1rem", maxWidth: "1100px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "48px" }}>
-        <h2 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(1.8rem,4vw,2.8rem)", color: "#fff" }}>
+        <h2 style={{ fontFamily: "'Sora',sans-serif", fontWeight: 900, fontSize: "clamp(1.8rem,4vw,2.8rem)", color: dark ? "#fff" : "#111" }}>
           Everything You Need to Succeed
         </h2>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "20px" }}>
         {features.map(f => (
           <div key={f.title} style={{
-            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
-            borderRadius: "16px", padding: "24px"
+            background: dark ? "rgba(255,255,255,0.03)" : "#fff",
+            border: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.07)",
+            borderRadius: "16px", padding: "24px",
+            boxShadow: dark ? "none" : "0 2px 10px rgba(0,0,0,0.05)"
           }}>
             <div style={{ fontSize: "2rem", marginBottom: "12px" }}>{f.icon}</div>
-            <h3 style={{ color: "#fff", fontWeight: 700, marginBottom: "8px", fontSize: "16px" }}>{f.title}</h3>
-            <p style={{ color: "#666", fontSize: "14px", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
+            <h3 style={{ color: dark ? "#fff" : "#111", fontWeight: 700, marginBottom: "8px", fontSize: "16px" }}>{f.title}</h3>
+            <p style={{ color: dark ? "#666" : "#777", fontSize: "14px", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
           </div>
         ))}
       </div>
@@ -2030,20 +2101,21 @@ function FeaturesSection() {
 
 // FOOTER
 function Footer({ setPage }) {
+  const dark = useTheme();
   return (
     <footer style={{
-      borderTop: "1px solid rgba(255,255,255,0.07)",
+      borderTop: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.08)",
       padding: "48px 1rem",
-      background: "rgba(0,0,0,0.3)"
+      background: dark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.03)"
     }}>
       <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "32px", marginBottom: "32px" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <div style={{ width: 32, height: 32, borderRadius: "8px", background: "linear-gradient(135deg,#FFD700,#FF6B00)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: "14px", color: "#000" }}>M</div>
-              <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, color: "#FFD700" }}>MeritMatrix</span>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, color: "#E6A800" }}>MeritMatrix</span>
             </div>
-            <p style={{ color: "#555", fontSize: "13px", lineHeight: 1.6 }}>Odisha's premier mock test platform for defence & government exams.</p>
+            <p style={{ color: dark ? "#555" : "#888", fontSize: "13px", lineHeight: 1.6 }}>Odisha's premier mock test platform for defence & government exams.</p>
           </div>
           {[
             ["Exams", ["Odisha Police","Indian Army","Agniveer","SSC GD"]],
@@ -2051,19 +2123,19 @@ function Footer({ setPage }) {
             ["Company", ["About","Contact","Privacy Policy","Terms"]],
           ].map(([title, links]) => (
             <div key={title}>
-              <div style={{ color: "#aaa", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>{title}</div>
+              <div style={{ color: dark ? "#aaa" : "#666", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>{title}</div>
               {links.map(l => (
-                <div key={l} style={{ color: "#555", fontSize: "13px", marginBottom: "8px", cursor: "pointer" }}
-                  onMouseEnter={e => e.target.style.color="#aaa"}
-                  onMouseLeave={e => e.target.style.color="#555"}
+                <div key={l} style={{ color: dark ? "#555" : "#999", fontSize: "13px", marginBottom: "8px", cursor: "pointer" }}
+                  onMouseEnter={e => e.target.style.color= dark ? "#aaa" : "#333"}
+                  onMouseLeave={e => e.target.style.color= dark ? "#555" : "#999"}
                 >{l}</div>
               ))}
             </div>
           ))}
         </div>
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "20px", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
-          <span style={{ color: "#444", fontSize: "13px" }}>© 2024 MeritMatrix. All rights reserved.</span>
-          <span style={{ color: "#444", fontSize: "13px" }}>Built for Odisha's aspirants 🇮🇳</span>
+          <span style={{ color: dark ? "#444" : "#aaa", fontSize: "13px" }}>© 2024 MeritMatrix. All rights reserved.</span>
+          <span style={{ color: dark ? "#444" : "#aaa", fontSize: "13px" }}>Built for Odisha's aspirants 🇮🇳</span>
         </div>
       </div>
     </footer>
@@ -2091,6 +2163,7 @@ export default function App() {
   const [user, setUser] = useLocalStorage("mm_user", null);
   const [activeExam, setActiveExam] = useState(null);
   const [activeTest, setActiveTest] = useState(null);
+  const [dark, setDark] = useLocalStorage("mm_theme", true); // true=dark, false=light
 
   // On load: handle Supabase email verification link (hash token) OR restore session
   useEffect(() => {
@@ -2145,26 +2218,30 @@ export default function App() {
   const showNav = page !== "exam-interface";
   const showFooter = !["exam-interface","exam-detail","admin","dashboard","auth"].includes(page);
 
+  const bg = dark ? "#080a14" : "#f5f6fa";
+  const fg = dark ? "#ffffff" : "#111827";
+
   return (
+    <ThemeContext.Provider value={dark}>
     <AuthContext.Provider value={{ user, setUser }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800;900&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html { scroll-behavior: smooth; }
-        body { background: #080a14; color: #fff; font-family: system-ui, -apple-system, sans-serif; overflow-x: hidden; }
+        body { background: ${bg}; color: ${fg}; font-family: system-ui, -apple-system, sans-serif; overflow-x: hidden; transition: background 0.3s, color 0.3s; }
         button { font-family: inherit; }
         input, textarea { font-family: inherit; }
-        input::placeholder { color: #444; }
-        textarea::placeholder { color: #444; }
+        input::placeholder { color: ${dark ? "#444" : "#aaa"}; }
+        textarea::placeholder { color: ${dark ? "#444" : "#aaa"}; }
         input:focus, textarea:focus { border-color: rgba(255,215,0,0.4) !important; }
-
-        /* Slider CSS */
         @keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         .slider-track { display: flex; animation: slide 30s linear infinite; width: max-content; }
         .slider-wrapper:hover .slider-track { animation-play-state: paused; }
-
-        /* Responsive */
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         @media (max-width: 768px) {
           .desktop-nav { display: none !important; }
           .mobile-menu-btn { display: block !important; }
@@ -2179,30 +2256,27 @@ export default function App() {
           .mobile-bottom-nav { display: none !important; }
           .exam-sidebar { display: block !important; }
         }
-        @media (max-width: 480px) {
-          .mobile-menu { display: flex !important; }
-        }
-        @media (min-width: 769px) {
-          .mobile-menu { display: none !important; }
-        }
+        @media (max-width: 480px) { .mobile-menu { display: flex !important; } }
+        @media (min-width: 769px) { .mobile-menu { display: none !important; } }
       `}</style>
 
       {showNav && (
-        <Navbar page={page} setPage={setPage} user={user} onLogout={handleLogout} />
+        <Navbar page={page} setPage={setPage} user={user} onLogout={handleLogout} dark={dark} setDark={setDark} />
       )}
 
       <main>
-        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} />}
-        {page === "exams"          && <ExamsPage setPage={setPage} setActiveExam={setActiveExam} />}
-        {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPage} setActiveTest={setActiveTest} user={user} />}
-        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} />}
-        {page === "dashboard"      && <DashboardPage user={user} setPage={setPage} />}
-        {page === "exam-interface" && <ExamInterface setPage={setPage} activeTest={activeTest} />}
-        {page === "pricing"        && <PricingPage setPage={setPage} />}
-        {page === "admin"          && <AdminPanel user={user} />}
+        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} dark={dark} />}
+        {page === "exams"          && <ExamsPage setPage={setPage} setActiveExam={setActiveExam} dark={dark} />}
+        {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPage} setActiveTest={setActiveTest} user={user} dark={dark} />}
+        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} dark={dark} />}
+        {page === "dashboard"      && <DashboardPage user={user} setPage={setPage} dark={dark} />}
+        {page === "exam-interface" && <ExamInterface setPage={setPage} activeTest={activeTest} dark={dark} />}
+        {page === "pricing"        && <PricingPage setPage={setPage} dark={dark} />}
+        {page === "admin"          && <AdminPanel user={user} dark={dark} />}
       </main>
 
-      {showFooter && <Footer setPage={setPage} />}
+      {showFooter && <Footer setPage={setPage} dark={dark} />}
     </AuthContext.Provider>
+    </ThemeContext.Provider>
   );
 }
