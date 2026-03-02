@@ -119,7 +119,7 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
           display: "flex", alignItems: "center", justifyContent: "center",
           fontWeight: 900, fontSize: "16px", color: "#000"
         }}>M</div>
-        <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: "18px", color: "#FFD700", letterSpacing: "-0.5px" }}>
+        <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: "18px", color: dark ? "#FFD700" : "#C47A00", letterSpacing: "-0.5px" }}>
           Merit<span style={{ color: dark ? "#fff" : "#111" }}>Matrix</span>
         </span>
       </div>
@@ -130,7 +130,7 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
           <button key={p} onClick={() => setPage(p)} style={{
             background: page===p ? "rgba(255,215,0,0.15)" : "transparent",
             border: page===p ? "1px solid rgba(255,215,0,0.3)" : "1px solid transparent",
-            color: page===p ? "#E6A800" : (dark ? "#aaa" : "#555"),
+            color: page===p ? (dark ? "#E6A800" : "#92600A") : (dark ? "#aaa" : "#555"),
             padding: "6px 14px", borderRadius: "6px", cursor: "pointer",
             fontSize: "14px", fontWeight: 500, transition: "all 0.2s"
           }}>{l}</button>
@@ -148,7 +148,7 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
           <>
             <button onClick={() => setPage("dashboard")} style={{
               background: dark ? "rgba(255,215,0,0.1)" : "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.3)",
-              color: "#E6A800", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "14px", fontWeight: 600
+              color: dark ? "#E6A800" : "#92600A", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "14px", fontWeight: 600
             }}>Dashboard</button>
             {user.isAdmin && (
               <button onClick={() => setPage("admin")} style={{
@@ -173,7 +173,7 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
       {/* Mobile Hamburger */}
       <button onClick={() => setMenuOpen(!menuOpen)} style={{
         display: "none", background: "transparent", border: "none",
-        color: "#FFD700", fontSize: "22px", cursor: "pointer"
+        color: dark ? "#FFD700" : "#C47A00", fontSize: "22px", cursor: "pointer"
       }} className="mobile-menu-btn">☰</button>
 
       {/* Mobile Menu Dropdown */}
@@ -194,7 +194,7 @@ function Navbar({ page, setPage, user, onLogout, dark, setDark }) {
             <>
               <button onClick={() => { setPage("dashboard"); setMenuOpen(false); }} style={{
                 background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)",
-                color: "#FFD700", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "15px", textAlign: "left"
+                color: dark ? "#FFD700" : "#92600A", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "15px", textAlign: "left"
               }}>📊 Dashboard</button>
               <button onClick={onLogout} style={{
                 background: "transparent", border: "1px solid #333",
@@ -306,7 +306,7 @@ function HeroSection({ setPage }) {
       <div style={{ textAlign: "center", maxWidth: "800px", position: "relative", zIndex: 1 }}>
         <div style={{
           display: "inline-block", background: "rgba(255,215,0,0.1)",
-          border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700",
+          border: "1px solid rgba(255,215,0,0.4)", color: dark ? "#FFD700" : "#92600A",
           padding: "6px 16px", borderRadius: "20px", fontSize: "13px",
           marginBottom: "24px", fontWeight: 600
         }}>
@@ -320,7 +320,7 @@ function HeroSection({ setPage }) {
         }}>
           Crack Your{" "}
           <span style={{
-            background: "linear-gradient(135deg, #FFD700, #FF8C00)",
+            background: dark ? "linear-gradient(135deg, #FFD700, #FF8C00)" : "linear-gradient(135deg, #C47A00, #E05000)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
           }}>Dream Exam</span>
           <br />with Smart Practice
@@ -340,8 +340,8 @@ function HeroSection({ setPage }) {
             Browse Exams →
           </button>
           <button onClick={() => setPage("auth")} style={{
-            background: "transparent", border: "1px solid rgba(255,255,255,0.2)",
-            color: "#fff", padding: "14px 32px", borderRadius: "10px",
+            background: "transparent", border: dark ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(0,0,0,0.2)",
+            color: dark ? "#fff" : "#333", padding: "14px 32px", borderRadius: "10px",
             cursor: "pointer", fontSize: "16px"
           }}>
             Start Free Trial
@@ -359,7 +359,7 @@ function HeroSection({ setPage }) {
               border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
               borderRadius: "12px", padding: "16px 24px", textAlign: "center"
             }}>
-              <div style={{ fontSize: "1.8rem", fontWeight: 900, color: "#E6A800", fontFamily: "'Sora',sans-serif" }}>{n}</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, color: dark ? "#E6A800" : "#92600A", fontFamily: "'Sora',sans-serif" }}>{n}</div>
               <div style={{ fontSize: "12px", color: dark ? "#666" : "#888", marginTop: "2px" }}>{l}</div>
             </div>
           ))}
@@ -577,7 +577,7 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
           borderRadius: "14px", color: "#555"
         }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📭</div>
-          No {activeTab === "mock" ? "mock tests" : activeTab === "sectional" ? "sectional tests" : "PYQ papers"} published yet.
+          <span style={{ color: dark ? "#555" : "#888" }}>No {activeTab === "mock" ? "mock tests" : activeTab === "sectional" ? "sectional tests" : "PYQ papers"} published yet.</span>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -594,7 +594,7 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
                 <div style={{ color: dark ? "#666" : "#888", fontSize: "13px", marginTop: "4px" }}>
                   {test.duration_minutes} min • {test.total_marks} Marks • -{test.negative_value} negative
                 </div>
-                {test.instructions && <div style={{ color: "#555", fontSize: "12px", marginTop: "4px" }}>{test.instructions}</div>}
+                {test.instructions && <div style={{ color: dark ? "#555" : "#888", fontSize: "12px", marginTop: "4px" }}>{test.instructions}</div>}
               </div>
               <button
                 onClick={() => {
@@ -739,7 +739,7 @@ function AuthPage({ setPage, onLogin }) {
           <p style={{ color: dark ? "#aaa" : "#666", fontSize: "14px", lineHeight: 1.7, marginBottom: "8px" }}>
             We sent a verification link to
           </p>
-          <p style={{ color: "#FFD700", fontWeight: 700, fontSize: "15px", marginBottom: "24px", wordBreak: "break-all" }}>
+          <p style={{ color: dark ? "#FFD700" : "#92600A", fontWeight: 700, fontSize: "15px", marginBottom: "24px", wordBreak: "break-all" }}>
             {verifyEmail}
           </p>
           <p style={{ color: dark ? "#666" : "#888", fontSize: "13px", lineHeight: 1.7, marginBottom: "28px" }}>
@@ -753,8 +753,8 @@ function AuthPage({ setPage, onLogin }) {
           <button
             onClick={() => { setVerifyEmail(""); setMode("login"); setError(""); }}
             style={{
-              background: "transparent", border: "1px solid rgba(255,255,255,0.15)",
-              color: "#aaa", padding: "12px 24px", borderRadius: "10px",
+              background: "transparent", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)",
+              color: dark ? "#aaa" : "#666", padding: "12px 24px", borderRadius: "10px",
               cursor: "pointer", fontSize: "14px", width: "100%"
             }}
           >
@@ -828,14 +828,14 @@ function AuthPage({ setPage, onLogin }) {
             {loading ? "Please wait..." : mode === "login" ? "Sign In →" : "Create Account →"}
           </button>
           <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }} style={{
-            background: "transparent", border: "none", color: "#666",
+            background: "transparent", border: "none", color: dark ? "#666" : "#555",
             cursor: "pointer", fontSize: "14px", padding: "4px"
           }}>
             {mode === "login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </button>
         </div>
 
-        <p style={{ color: "#444", fontSize: "12px", textAlign: "center", marginTop: "20px" }}>
+        <p style={{ color: dark ? "#444" : "#888", fontSize: "12px", textAlign: "center", marginTop: "20px" }}>
           By continuing, you agree to our Terms of Service
         </p>
       </div>
@@ -901,8 +901,8 @@ function DashboardPage({ user, setPage }) {
             borderRadius: "10px", cursor: "pointer", fontSize: "14px", fontWeight: 700
           }}>Browse Exams →</button>
           <button style={{
-            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-            color: "#fff", padding: "12px 24px", borderRadius: "10px", cursor: "pointer", fontSize: "14px"
+            background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
+            color: dark ? "#fff" : "#333", padding: "12px 24px", borderRadius: "10px", cursor: "pointer", fontSize: "14px"
           }}>View Results</button>
         </div>
       </div>
@@ -922,7 +922,7 @@ function DashboardPage({ user, setPage }) {
             <p style={{ color: "#666" }}>No tests taken yet. Start your first test!</p>
             <button onClick={() => setPage("exams")} style={{
               marginTop: "16px", background: "rgba(255,215,0,0.1)",
-              border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700",
+              border: "1px solid rgba(255,215,0,0.4)", color: dark ? "#FFD700" : "#92600A",
               padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontSize: "14px"
             }}>Browse Exams</button>
           </div>
@@ -1108,7 +1108,7 @@ function ExamInterface({ setPage, activeTest }) {
       else subjects[s].skipped++;
     });
 
-    const grade = pct >= 90 ? { label: "Excellent", color: "#FFD700", emoji: "🥇" }
+    const grade = pct >= 90 ? { label: "Excellent", color: dark ? "#FFD700" : "#92600A", emoji: "🥇" }
       : pct >= 75 ? { label: "Very Good", color: "#4ade80", emoji: "🎉" }
       : pct >= 60 ? { label: "Good", color: "#4ade80", emoji: "👍" }
       : pct >= 40 ? { label: "Average", color: "#fb923c", emoji: "📈" }
@@ -1131,7 +1131,7 @@ function ExamInterface({ setPage, activeTest }) {
 
           {/* Score hero */}
           <div style={{ background: "linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.05))", border: "1px solid rgba(255,215,0,0.2)", borderRadius: "20px", padding: "28px", marginBottom: "20px", textAlign: "center", animation: "fadeUp 0.6s ease" }}>
-            <div style={{ fontSize: "clamp(3rem,8vw,5rem)", fontWeight: 900, fontFamily: "'Sora',sans-serif", color: "#FFD700", lineHeight: 1 }}>{pct}%</div>
+            <div style={{ fontSize: "clamp(3rem,8vw,5rem)", fontWeight: 900, fontFamily: "'Sora',sans-serif", color: dark ? "#FFD700" : "#92600A", lineHeight: 1 }}>{pct}%</div>
             <div style={{ color: dark ? "#aaa" : "#777", fontSize: "15px", marginTop: "6px" }}>{score.toFixed(1)} out of {totalMarks} marks</div>
             <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", margin: "16px 0 8px", overflow: "hidden" }}>
               <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#FFD700,#FF8C00)", borderRadius: "8px", transition: "width 1.5s ease" }} />
@@ -1159,7 +1159,7 @@ function ExamInterface({ setPage, activeTest }) {
               <button key={k} onClick={() => setActiveResultTab(k)} style={{
                 flex: 1, padding: "10px", borderRadius: "7px", border: "none", cursor: "pointer", fontSize: "14px", fontWeight: activeResultTab===k ? 700 : 400,
                 background: activeResultTab===k ? "rgba(255,215,0,0.15)" : "transparent",
-                color: activeResultTab===k ? "#FFD700" : "#666",
+                color: activeResultTab===k ? (dark ? "#FFD700" : "#92600A") : (dark ? "#666" : "#888"),
               }}>{l}</button>
             ))}
           </div>
@@ -1179,7 +1179,7 @@ function ExamInterface({ setPage, activeTest }) {
                           <span style={{ color: "#4ade80" }}>✓ {d.correct}</span>
                           <span style={{ color: "#ff6b6b" }}>✗ {d.wrong}</span>
                           <span style={{ color: "#818cf8" }}>– {d.skipped}</span>
-                          <span style={{ color: "#FFD700", fontWeight: 700 }}>{spct}%</span>
+                          <span style={{ color: dark ? "#FFD700" : "#92600A", fontWeight: 700 }}>{spct}%</span>
                         </div>
                       </div>
                       <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "4px", height: "6px", overflow: "hidden" }}>
@@ -1196,22 +1196,22 @@ function ExamInterface({ setPage, activeTest }) {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.15)", borderRadius: "10px", padding: "12px" }}>
                     <div style={{ color: "#4ade80", fontSize: "11px", marginBottom: "4px" }}>ACCURACY</div>
-                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>{answered > 0 ? Math.round(correct/answered*100) : 0}%</div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "1.4rem", fontWeight: 800 }}>{answered > 0 ? Math.round(correct/answered*100) : 0}%</div>
                     <div style={{ color: "#555", fontSize: "11px" }}>{correct} correct of {answered} attempted</div>
                   </div>
                   <div style={{ background: "rgba(255,215,0,0.05)", border: "1px solid rgba(255,215,0,0.15)", borderRadius: "10px", padding: "12px" }}>
-                    <div style={{ color: "#FFD700", fontSize: "11px", marginBottom: "4px" }}>ATTEMPT RATE</div>
-                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>{Math.round(answered/TOTAL*100)}%</div>
+                    <div style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "11px", marginBottom: "4px" }}>ATTEMPT RATE</div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "1.4rem", fontWeight: 800 }}>{Math.round(answered/TOTAL*100)}%</div>
                     <div style={{ color: "#555", fontSize: "11px" }}>{answered} of {TOTAL} attempted</div>
                   </div>
                   <div style={{ background: "rgba(255,100,100,0.05)", border: "1px solid rgba(255,100,100,0.15)", borderRadius: "10px", padding: "12px" }}>
                     <div style={{ color: "#ff6b6b", fontSize: "11px", marginBottom: "4px" }}>MARKS LOST</div>
-                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>-{(wrong * (questions[0]?.negative || 0.25)).toFixed(2)}</div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "1.4rem", fontWeight: 800 }}>-{(wrong * (questions[0]?.negative || 0.25)).toFixed(2)}</div>
                     <div style={{ color: "#555", fontSize: "11px" }}>from {wrong} wrong answers</div>
                   </div>
                   <div style={{ background: "rgba(129,140,248,0.05)", border: "1px solid rgba(129,140,248,0.15)", borderRadius: "10px", padding: "12px" }}>
                     <div style={{ color: "#818cf8", fontSize: "11px", marginBottom: "4px" }}>AVG TIME/Q</div>
-                    <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 800 }}>{answered > 0 ? Math.round(timeTaken/answered) : 0}s</div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "1.4rem", fontWeight: 800 }}>{answered > 0 ? Math.round(timeTaken/answered) : 0}s</div>
                     <div style={{ color: "#555", fontSize: "11px" }}>per attempted question</div>
                   </div>
                 </div>
@@ -1266,7 +1266,7 @@ function ExamInterface({ setPage, activeTest }) {
                           </div>
                           {q.explanation && (
                             <div style={{ background: "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.15)", borderRadius: "8px", padding: "12px 14px" }}>
-                              <span style={{ color: "#FFD700", fontSize: "11px", fontWeight: 700 }}>💡 EXPLANATION</span>
+                              <span style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "11px", fontWeight: 700 }}>💡 EXPLANATION</span>
                               <p style={{ color: "#aaa", fontSize: "13px", marginTop: "6px", lineHeight: 1.6, margin: "6px 0 0" }}>{q.explanation}</p>
                             </div>
                           )}
@@ -1281,7 +1281,7 @@ function ExamInterface({ setPage, activeTest }) {
 
           {/* Action buttons */}
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "24px", flexWrap: "wrap" }}>
-            <button onClick={() => setPage("exams")} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", padding: "13px 28px", borderRadius: "10px", cursor: "pointer", fontSize: "15px", fontWeight: 600 }}>← More Tests</button>
+            <button onClick={() => setPage("exams")} style={{ background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#333", padding: "13px 28px", borderRadius: "10px", cursor: "pointer", fontSize: "15px", fontWeight: 600 }}>← More Tests</button>
             <button onClick={() => setPage("dashboard")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "13px 32px", borderRadius: "10px", cursor: "pointer", fontSize: "15px", fontWeight: 800 }}>Dashboard →</button>
           </div>
         </div>
@@ -1417,7 +1417,7 @@ function ExamInterface({ setPage, activeTest }) {
           {/* Question header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>Q {current+1}</span>
+              <span style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: dark ? "#FFD700" : "#92600A", padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>Q {current+1}</span>
               <span style={{ background: "rgba(255,255,255,0.06)", color: "#888", padding: "3px 10px", borderRadius: "6px", fontSize: "12px" }}>{q.subject}</span>
               <span style={{ color: "#4ade80", fontSize: "12px" }}>+{q.marks}</span>
               <span style={{ color: "#ff6b6b", fontSize: "12px" }}>-{q.negative}</span>
@@ -1470,7 +1470,7 @@ function ExamInterface({ setPage, activeTest }) {
           <div style={{ display: "flex", gap: "10px", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setCurrent(c => Math.max(0, c-1))} disabled={current===0} style={{
               background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
-              color: current===0 ? "#333" : "#fff", padding: "11px 22px",
+              color: current===0 ? (dark ? "#333" : "#bbb") : (dark ? "#fff" : "#111"), padding: "11px 22px",
               borderRadius: "9px", cursor: current===0 ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: 600
             }}>← Prev</button>
 
@@ -1532,7 +1532,7 @@ function ExamInterface({ setPage, activeTest }) {
         alignItems: "center", justifyContent: "space-between", gap: "8px"
       }}>
         <button onClick={() => setCurrent(c => Math.max(0, c-1))} disabled={current===0} style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: current===0?"#333":"#fff", padding: "10px", borderRadius: "8px", cursor: current===0?"not-allowed":"pointer", fontSize: "13px" }}>← Prev</button>
-        <button onClick={() => setShowPalette(true)} style={{ flex: 1, background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>📋 {answered}/{TOTAL}</button>
+        <button onClick={() => setShowPalette(true)} style={{ flex: 1, background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: dark ? "#FFD700" : "#92600A", padding: "10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>📋 {answered}/{TOTAL}</button>
         <button onClick={() => setCurrent(c => Math.min(TOTAL-1, c+1))} disabled={current===TOTAL-1} style={{ flex: 1, background: current===TOTAL-1?"rgba(255,255,255,0.04)":"linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: current===TOTAL-1?"#333":"#000", padding: "10px", borderRadius: "8px", cursor: current===TOTAL-1?"not-allowed":"pointer", fontSize: "13px", fontWeight: 700 }}>Next →</button>
       </div>
     </div>
@@ -1577,7 +1577,7 @@ function PricingPage({ setPage }) {
               <span style={{ color: dark ? "#fff" : "#111", fontSize: "2.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>
                 {plan.price === 0 ? "Free" : `₹${plan.price}`}
               </span>
-              {plan.price > 0 && <span style={{ color: "#666", fontSize: "14px" }}>/{plan.period}</span>}
+              {plan.price > 0 && <span style={{ color: dark ? "#666" : "#888", fontSize: "14px" }}>/{plan.period}</span>}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "28px" }}>
               {plan.features.map(f => (
@@ -1691,7 +1691,7 @@ function AdminExams({ user }) {
       {/* Exam Form */}
       {showForm && (
         <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "14px", padding: "20px", marginBottom: "20px" }}>
-          <h3 style={{ color: "#FFD700", marginBottom: "16px" }}>{editExam ? "Edit Exam" : "New Exam"}</h3>
+          <h3 style={{ color: dark ? "#FFD700" : "#92600A", marginBottom: "16px" }}>{editExam ? "Edit Exam" : "New Exam"}</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
             <div>
               <label style={{ color: "#aaa", fontSize: "12px" }}>Exam Name *</label>
@@ -1792,7 +1792,7 @@ function AdminExams({ user }) {
                             <div style={{ color: "#555", fontSize: "11px" }}>{test.test_type} • {test.duration_minutes}min • {test.total_marks}marks • {test.is_published ? <span style={{ color: "#4ade80" }}>Published</span> : <span style={{ color: "#ff6b6b" }}>Draft</span>}</div>
                           </div>
                           <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => { setEditTest(test); setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published }); setShowTestForm(exam.id); }} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.2)", color: "#FFD700", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Edit</button>
+                            <button onClick={() => { setEditTest(test); setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published }); setShowTestForm(exam.id); }} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.2)", color: dark ? "#FFD700" : "#92600A", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Edit</button>
                             <button onClick={() => deleteTest(test.id, exam.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.2)", color: "#ff6b6b", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Del</button>
                           </div>
                         </div>
@@ -1970,7 +1970,7 @@ function AdminPanel({ user }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: "16px" }}>
               {[["Total Users","—","#818cf8"],["Total Tests","—","#4ade80"],["Attempts","—","#FFD700"],["Questions","—","#fb923c"]].map(([l,v,c]) => (
                 <div key={l} style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"12px", padding:"20px" }}>
-                  <div style={{color:"#555",fontSize:"12px",marginBottom:"8px"}}>{l}</div>
+                  <div style={{color: dark ? "#555" : "#888",fontSize:"12px",marginBottom:"8px"}}>{l}</div>
                   <div style={{color:c,fontSize:"2rem",fontWeight:900,fontFamily:"'Sora',sans-serif"}}>{v}</div>
                 </div>
               ))}
@@ -2113,7 +2113,7 @@ function Footer({ setPage }) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <div style={{ width: 32, height: 32, borderRadius: "8px", background: "linear-gradient(135deg,#FFD700,#FF6B00)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: "14px", color: "#000" }}>M</div>
-              <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, color: "#E6A800" }}>MeritMatrix</span>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, color: dark ? "#E6A800" : "#C47A00" }}>MeritMatrix</span>
             </div>
             <p style={{ color: dark ? "#555" : "#888", fontSize: "13px", lineHeight: 1.6 }}>Odisha's premier mock test platform for defence & government exams.</p>
           </div>
