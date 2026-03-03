@@ -17,6 +17,8 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
+    "rollup-plugin-javascript-obfuscator": "^1.0.4",
+    "terser": "^5.46.0",
     "vite": "^5.0.0"
   }
 }
