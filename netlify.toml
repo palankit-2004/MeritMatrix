@@ -1,5 +1,5 @@
 [build]
-  command = "npx --yes vite build"
+  command = "npm run build"
   publish = "dist"
 
 [[redirects]]
