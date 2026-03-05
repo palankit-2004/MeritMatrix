@@ -1,6 +1,87 @@
 import { useState, useEffect, useRef, useContext, createContext, useCallback } from "react";
 
 // ============================================================
+// DEVTOOLS & ANTI-CHEAT PROTECTION (runs immediately)
+// ============================================================
+(function() {
+  const isExam = () => document.body && document.body.getAttribute("data-exam-active") === "true";
+
+  // 1. Block F12 / Ctrl+Shift+I / Ctrl+U / Cmd+Option+I
+  document.addEventListener("keydown", function(e) {
+    const k = e.key;
+    const ctrl = e.ctrlKey || e.metaKey;
+    const shift = e.shiftKey;
+    const alt = e.altKey;
+    if (
+      k === "F12" ||
+      (ctrl && shift && (k === "I" || k === "i" || k === "J" || k === "j" || k === "C" || k === "c" || k === "K" || k === "k")) ||
+      (ctrl && (k === "u" || k === "U")) ||
+      (ctrl && alt && (k === "I" || k === "i" || k === "J" || k === "j" || k === "C" || k === "c"))
+    ) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, true);
+
+  // 2. Block right-click context menu always
+  document.addEventListener("contextmenu", function(e) {
+    e.preventDefault();
+    return false;
+  }, true);
+
+  // 3. Block copy/cut during exam
+  document.addEventListener("copy", function(e) {
+    if (isExam()) {
+      e.preventDefault();
+      if (e.clipboardData) e.clipboardData.setData("text/plain", "");
+    }
+  }, true);
+  document.addEventListener("cut", function(e) {
+    if (isExam()) { e.preventDefault(); }
+  }, true);
+
+  // 4. Window size devtools detection (devtools panel opens = size changes)
+  var _dtOpen = false;
+  setInterval(function() {
+    var w = window.outerWidth - window.innerWidth;
+    var h = window.outerHeight - window.innerHeight;
+    var open = w > 160 || h > 160;
+    if (open && !_dtOpen && isExam()) {
+      _dtOpen = true;
+      document.dispatchEvent(new CustomEvent("mm-devtools-detected"));
+    }
+    if (!open) _dtOpen = false;
+  }, 1000);
+
+  // 5. Debugger timing detection — only fires if DevTools open AND breakpoints active
+  setInterval(function() {
+    if (!isExam()) return;
+    var t = +new Date();
+    (function() {})["constructor"]("debugger")();
+    if ((+new Date() - t) > 200) {
+      document.dispatchEvent(new CustomEvent("mm-devtools-detected"));
+    }
+  }, 3000);
+
+  // 6. Override console to prevent answer extraction via console
+  var noop = function() {};
+  var consoleMethods = ["log","warn","error","info","table","dir","debug","trace","group","groupEnd","dirxml","count","time","timeEnd","profile","profileEnd","assert"];
+  consoleMethods.forEach(function(m) {
+    try {
+      Object.defineProperty(console, m, { get: function() { return noop; }, configurable: false });
+    } catch(e) {}
+  });
+
+  // 7. Firebug / legacy devtools detection
+  var fb = window.console;
+  if (fb && fb.firebug) {
+    document.dispatchEvent(new CustomEvent("mm-devtools-detected"));
+  }
+
+})();
+
+
+// ============================================================
 // CONTEXTS
 // ============================================================
 const AuthContext = createContext(null);
@@ -99,7 +180,6 @@ async function supabaseAuth(action, payload) {
   });
   const data = await res.json();
   if (!res.ok) {
-  console.error("Full Supabase error:", JSON.stringify(data));
   throw new Error(data.error_description || data.msg || data.message || "Auth failed");
 }
   return data;
@@ -361,7 +441,7 @@ function LogoSlider({ logos = LOGOS_CONFIG }) {
 }
 
 // HERO SECTION
-function HeroSection({ setPage }) {
+function HeroSection({ setPage, user }) {
   const dark = useTheme();
   return (
     <section style={{
@@ -414,12 +494,12 @@ function HeroSection({ setPage }) {
           }}>
             Browse Exams →
           </button>
-          <button onClick={() => setPage("auth")} style={{
+          <button onClick={() => setPage(user ? "exams" : "auth")} style={{
             background: "transparent", border: dark ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(0,0,0,0.2)",
             color: dark ? "#fff" : "#333", padding: "14px 32px", borderRadius: "10px",
             cursor: "pointer", fontSize: "16px"
           }}>
-            Start Free Trial
+            {user ? "Browse Exams →" : "Start Free Trial"}
           </button>
         </div>
 
@@ -617,7 +697,7 @@ function TestInstructionsModal({ test, onConfirm, onCancel, dark }) {
 
         {/* Content */}
         <div className="custom-scroll" style={{ padding: "24px", overflowY: "auto", flex: 1 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "30px" }}>
+          <div className="modal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "24px" }}>
             
             {/* Left: UI Guide */}
             <div>
@@ -645,6 +725,39 @@ function TestInstructionsModal({ test, onConfirm, onCancel, dark }) {
                   <div style={{ color: "#818cf8", fontSize: "10px" }}>DURATION</div>
                   <div style={{ color: "#818cf8", fontWeight: 700 }}>{test.duration} Minutes ({test.duration * 60} Seconds)</div>
                 </div>
+              </div>
+              {/* Sections in modal */}
+              {test.sections && (() => {
+                let parsedSecs = [];
+                try { parsedSecs = typeof test.sections === "string" ? JSON.parse(test.sections) : (test.sections || []); } catch {}
+                if (!parsedSecs.length) return null;
+                const SCOLS = ["#FFD700","#4ade80","#818cf8","#fb923c","#f472b6","#22d3ee","#a78bfa","#34d399"];
+                return (
+                  <div style={{ marginTop: "4px" }}>
+                    <div style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "8px" }}>📚 Sections</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {parsedSecs.map((sec, i) => {
+                        const c = sec.color || SCOLS[i % SCOLS.length];
+                        return (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", background: `${c}0f`, border: `1px solid ${c}33`, borderRadius: "8px" }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: c, flexShrink: 0 }} />
+                            <div style={{ flex: 1 }}>
+                              <span style={{ color: c, fontWeight: 700, fontSize: "12px" }}>{sec.name}</span>
+                              {sec.subject && <span style={{ color: "#666", fontSize: "11px" }}> · {sec.subject}</span>}
+                            </div>
+                            <div style={{ color: "#555", fontSize: "11px", textAlign: "right" }}>
+                              <span style={{ color: "#aaa" }}>{sec.questions_count} Qs</span>
+                              <span style={{ color: "#4ade80", marginLeft: "8px" }}>+{sec.marks_per_question}</span>
+                              <span style={{ color: "#ff6b6b", marginLeft: "4px" }}>-{sec.negative_marks}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div style={{ display: "none" }}>
               </div>
 
               <h3 style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "12px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>🛡️ General Instructions</h3>
@@ -778,13 +891,13 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
                 <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "15px" }}>{test.name}</div>
                 <div style={{ color: dark ? "#666" : "#888", fontSize: "13px", marginTop: "4px" }}>
                   {test.duration_minutes} min • {test.total_marks} Marks • -{test.negative_value} negative
+                  {test._questionCount !== undefined && <span style={{color:"rgba(255,215,0,0.7)", marginLeft:"6px"}}>({test._questionCount} questions)</span>}
                 </div>
                 {test.instructions && <div style={{ color: dark ? "#555" : "#888", fontSize: "12px", marginTop: "4px" }}>{test.instructions}</div>}
               </div>
               <button
                 onClick={() => {
                   if (!user) { setPage("auth"); return; }
-                  // Trigger the Instructions Modal instead of starting the test immediately
                   setPendingTest({ 
                     name: test.name, 
                     test_id: test.id, 
@@ -826,25 +939,52 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
 }
 
 // AUTH PAGE — with email verification flow
-function AuthPage({ setPage, onLogin }) {
+function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecoveryUsed }) {
   const dark = useTheme();
-  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
+  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot" | "reset"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [state, setState] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetToken, setResetToken] = useState(null); // stores recovery access token
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [verifyEmail, setVerifyEmail] = useState(""); // show "check email" screen
+  const [success, setSuccess] = useState("");
+  const [verifyEmail, setVerifyEmail] = useState("");
   const [resetSent, setResetSent] = useState(false);
 
-  // On mount: check if user landed back from email verification link
+  // React to propRecoveryToken arriving from parent (root App parsed the URL hash)
   useEffect(() => {
+    if (propRecoveryToken) {
+      setResetToken(propRecoveryToken);
+      setMode("reset");
+    }
+  }, [propRecoveryToken]);
+
+  // On mount: check localStorage for recovery token (persisted by root App)
+  useEffect(() => {
+    const storedToken = localStorage.getItem("mm_recovery_token");
+    if (storedToken) {
+      localStorage.removeItem("mm_recovery_token"); // consume it immediately
+      setResetToken(storedToken);
+      setMode("reset");
+      return;
+    }
+
+    // Also check URL hash directly (user opened link in new tab scenario)
     const hash = window.location.hash;
     const params = new URLSearchParams(hash.replace("#", "?"));
     const accessToken = params.get("access_token");
     const type = params.get("type");
+    if (!accessToken) return;
+    window.history.replaceState(null, "", window.location.pathname);
 
-    if (accessToken && (type === "signup" || type === "magiclink" || type === "recovery")) {
-      // Exchange token for session
+    if (type === "recovery") {
+      setResetToken(accessToken);
+      setMode("reset");
+    } else if (type === "signup" || type === "magiclink") {
       (async () => {
         try {
           const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
@@ -852,26 +992,52 @@ function AuthPage({ setPage, onLogin }) {
           });
           const userData = await res.json();
           if (userData?.id) {
-            const sessionData = { access_token: accessToken, user: userData };
-            localStorage.setItem("mm_session", JSON.stringify(sessionData));
+            localStorage.setItem("mm_session", JSON.stringify({ access_token: accessToken, user: userData }));
             let isAdmin = false;
             try {
               const roles = await supabaseRequest(`/roles?user_id=eq.${userData.id}&select=role`, { token: accessToken });
               isAdmin = roles?.some(r => r.role === "admin") || false;
             } catch {}
-            // Clear the hash from URL
-            window.history.replaceState(null, "", window.location.pathname);
             onLogin({ ...userData, token: accessToken, isAdmin });
             setPage("dashboard");
           }
-        } catch(e) {
-          setError("Verification failed. Please try signing in again.");
-        }
+        } catch(e) { setError("Verification failed. Please try signing in again."); }
       })();
     }
   }, []);
 
+  // Handle password reset submission
+  const handleResetPassword = async () => {
+    setError(""); setSuccess("");
+    if (!newPassword || !confirmPassword) { setError("Please fill in both fields."); return; }
+    if (newPassword.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: "PUT",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${resetToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ password: newPassword })
+      });
+      const data = await res.json();
+      if (data.error || data.error_description) throw new Error(data.error_description || data.error?.message || "Failed to reset password");
+      localStorage.removeItem("mm_recovery_token");
+      setSuccess("✅ Password updated successfully! Sign in with your new password.");
+      setMode("login");
+      setResetToken(null);
+      setNewPassword(""); setConfirmPassword("");
+      if (onRecoveryUsed) onRecoveryUsed();
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
   const handleAuth = async () => {
+    if (mode === "signup" && !fullName.trim()) { setError("Please enter your full name"); return; }
+    if (mode === "signup" && !state) { setError("Please select your state"); return; }
     if (!email || !password) { setError("Enter email and password"); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
     setLoading(true); setError("");
@@ -886,6 +1052,23 @@ function AuthPage({ setPage, onLogin }) {
         // If confirm email is OFF — Supabase returns access_token immediately
         if (data.access_token) {
           localStorage.setItem("mm_session", JSON.stringify(data));
+          // Save name and state to profiles
+          try {
+            await supabaseRequest(`/profiles?id=eq.${data.user?.id}`, {
+              method: "PATCH",
+              body: { full_name: fullName.trim(), state },
+              token: data.access_token, prefer: "return=minimal"
+            });
+          } catch {
+            // If PATCH fails (no row yet), try INSERT
+            try {
+              await supabaseRequest("/profiles", {
+                method: "POST",
+                body: { id: data.user?.id, full_name: fullName.trim(), state },
+                token: data.access_token, prefer: "return=minimal"
+              });
+            } catch {}
+          }
           let isAdmin = false;
           try {
             const roles = await supabaseRequest(`/roles?user_id=eq.${data.user?.id}&select=role`, { token: data.access_token });
@@ -894,7 +1077,9 @@ function AuthPage({ setPage, onLogin }) {
           onLogin({ ...data.user, token: data.access_token, isAdmin });
           setPage("dashboard");
         } else {
-          // Confirm email is ON — show check email screen
+          // Confirm email is ON — show check email screen (profile saved after verification)
+          // Store name+state temporarily so we can save after email confirm
+          localStorage.setItem("mm_pending_profile", JSON.stringify({ full_name: fullName.trim(), state }));
           setVerifyEmail(email);
         }
         setLoading(false);
@@ -993,6 +1178,48 @@ function AuthPage({ setPage, onLogin }) {
     );
   }
 
+  // ── Reset Password screen (from email link) ──
+  if (mode === "reset") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 1rem 40px",
+        background: dark ? "radial-gradient(ellipse at 50% 0%, rgba(255,215,0,0.06) 0%, transparent 60%)" : "radial-gradient(ellipse at 50% 0%, rgba(255,180,0,0.08) 0%, transparent 60%)" }}>
+        <div style={{ width: "100%", maxWidth: "420px", background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)", boxShadow: dark ? "none" : "0 8px 40px rgba(0,0,0,0.1)", borderRadius: "20px", padding: "clamp(24px,5vw,40px)" }}>
+          <div style={{ textAlign: "center", marginBottom: "28px" }}>
+            <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>🔐</div>
+            <h2 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0 }}>Set New Password</h2>
+            <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginTop: "6px" }}>Choose a strong password for your account.</p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {error && <div style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", padding: "10px 14px", borderRadius: "8px", fontSize: "14px" }}>{error}</div>}
+            {success && <div style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", padding: "10px 14px", borderRadius: "8px", fontSize: "14px" }}>{success}</div>}
+            <div>
+              <label style={{ color: dark?"#aaa":"#666", fontSize: "12px", display: "block", marginBottom: "6px" }}>NEW PASSWORD</label>
+              <input type="password" placeholder="Enter new password (min 6 chars)" value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                style={{ width:"100%", background: dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)", border: dark?"1px solid rgba(255,255,255,0.15)":"1px solid rgba(0,0,0,0.15)", color: dark?"#fff":"#111", padding:"14px 16px", borderRadius:"10px", fontSize:"15px", outline:"none", boxSizing:"border-box" }} />
+            </div>
+            <div>
+              <label style={{ color: dark?"#aaa":"#666", fontSize: "12px", display: "block", marginBottom: "6px" }}>CONFIRM PASSWORD</label>
+              <input type="password" placeholder="Re-enter new password" value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleResetPassword()}
+                style={{ width:"100%", background: dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)", border: dark?"1px solid rgba(255,255,255,0.15)":"1px solid rgba(0,0,0,0.15)", color: dark?"#fff":"#111", padding:"14px 16px", borderRadius:"10px", fontSize:"15px", outline:"none", boxSizing:"border-box" }} />
+            </div>
+            {newPassword && confirmPassword && (
+              <div style={{ fontSize: "12px", color: newPassword === confirmPassword ? "#4ade80" : "#ff6b6b" }}>
+                {newPassword === confirmPassword ? "✓ Passwords match" : "✗ Passwords do not match"}
+              </div>
+            )}
+            <button onClick={handleResetPassword} disabled={loading} style={{ width:"100%", background: loading?"#555":"linear-gradient(135deg,#FFD700,#FF8C00)", border:"none", color:"#000", padding:"14px", borderRadius:"10px", cursor: loading?"not-allowed":"pointer", fontSize:"16px", fontWeight:700, marginTop:"4px" }}>
+              {loading ? "Updating Password..." : "Set New Password →"}
+            </button>
+            <button onClick={() => { setMode("login"); setError(""); }} style={{ background:"transparent", border:"none", color: dark?"#555":"#888", cursor:"pointer", fontSize:"13px", padding:"4px" }}>← Back to Sign In</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Forgot password screen ──
   if (mode === "forgot") {
     return (
@@ -1068,6 +1295,19 @@ function AuthPage({ setPage, onLogin }) {
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {mode === "signup" && (
+            <input
+              type="text" placeholder="Full Name *"
+              value={fullName} onChange={e => setFullName(e.target.value)}
+              style={inputStyle}
+            />
+          )}
+          {mode === "signup" && (
+            <select value={state} onChange={e => setState(e.target.value)} style={{...inputStyle, appearance:"none", cursor:"pointer"}}>
+              <option value="">Select Your State *</option>
+              {["Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka","Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal","Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu","Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry"].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
           <input
             type="email" placeholder="Enter your email"
             value={email} onChange={e => setEmail(e.target.value)}
@@ -1168,7 +1408,12 @@ function DashboardPage({ user, setPage }) {
             border: "none", color: "#000", padding: "12px 24px",
             borderRadius: "10px", cursor: "pointer", fontSize: "14px", fontWeight: 700
           }}>Browse Exams →</button>
-          <button onClick={() => { const el = document.getElementById("recent-attempts"); if(el) el.scrollIntoView({ behavior: "smooth" }); }} style={{
+          <button onClick={() => { 
+            setTimeout(() => {
+              const el = document.getElementById("recent-attempts"); 
+              if(el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 100);
+          }} style={{
             background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
             color: dark ? "#fff" : "#333", padding: "12px 24px", borderRadius: "10px", cursor: "pointer", fontSize: "14px"
           }}>View Results ↓</button>
@@ -1200,16 +1445,26 @@ function DashboardPage({ user, setPage }) {
               <div key={i} style={{
                 background: dark ? "rgba(255,255,255,0.04)" : "#fff",
                 border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-                borderRadius: "10px", padding: "14px 18px",
-                display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px"
+                borderRadius: "12px", padding: "16px 20px",
+                display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px"
               }}>
-                <div>
-                  <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{a.tests?.name || "Test"}</div>
-                  <div style={{ color: "#555", fontSize: "12px" }}>{new Date(a.created_at).toLocaleDateString()}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "15px", marginBottom: "4px" }}>{a.tests?.name || "Test"}</div>
+                  <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
+                    <span style={{ color: "#4ade80", fontSize: "12px" }}>✓ {a.correct_count || 0} correct</span>
+                    <span style={{ color: "#ff6b6b", fontSize: "12px" }}>✗ {a.wrong_count || 0} wrong</span>
+                    <span style={{ color: "#666", fontSize: "12px" }}>— {a.unattempted_count || 0} skipped</span>
+                    <span style={{ color: "#555", fontSize: "12px" }}>⏱ {a.time_taken_seconds ? Math.floor(a.time_taken_seconds/60)+"m "+( a.time_taken_seconds%60)+"s" : "—"}</span>
+                    <span style={{ color: "#444", fontSize: "12px" }}>{new Date(a.created_at).toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" })}</span>
+                  </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ color: "#4ade80", fontWeight: 700 }}>{a.score}/{a.total_marks}</div>
-                  <div style={{ color: "#666", fontSize: "12px" }}>{Math.round(a.score/a.total_marks*100)}%</div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  {(() => { const pct = a.total_marks > 0 ? Math.round((a.score/a.total_marks)*100) : 0; return (
+                    <>
+                      <div style={{ color: pct>=60?"#4ade80":pct>=40?"#fb923c":"#ff6b6b", fontWeight: 900, fontSize: "22px", fontFamily:"'Sora',sans-serif" }}>{pct}%</div>
+                      <div style={{ color: "#666", fontSize: "12px" }}>{a.score}/{a.total_marks} marks</div>
+                    </>
+                  ); })()}
                 </div>
               </div>
             ))}
@@ -1228,6 +1483,8 @@ function ExamInterface({ setPage, activeTest }) {
   const DURATION = (activeTest?.duration || 10) * 60;
 
   const [questions, setQuestions] = useState([]);
+  const [sections, setSections] = useState([]); // parsed section config
+  const [activeSection, setActiveSection] = useState(null); // null = all
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   // Dynamic keys to ensure we save state for THIS specific test
@@ -1278,16 +1535,56 @@ function ExamInterface({ setPage, activeTest }) {
           setLoadError("No questions found for this test. Go to Admin → Questions and upload questions linked to this test.");
           setLoading(false); return;
         }
-        setQuestions(data.map(q => ({
-          id: q.id,
-          text: q.question_text,
-          options: [q.option_a, q.option_b, q.option_c, q.option_d],
-          correct: ["a","b","c","d"].indexOf(q.correct_answer?.toLowerCase()),
-          marks: q.marks || 1,
-          negative: q.negative_marks ?? 0.25,
-          subject: q.subject || "General",
-          explanation: q.explanation || "",
-        })));
+        // Parse sections from activeTest
+        let parsedSections = [];
+        try {
+          if (activeTest?.sections) {
+            parsedSections = typeof activeTest.sections === "string"
+              ? JSON.parse(activeTest.sections) : activeTest.sections;
+          }
+        } catch {}
+
+        // Map questions — if sections exist, apply per-section marks/negative
+        const qs = data.map((q, idx) => {
+          // Find which section this question belongs to based on subject or order
+          let secMarks = q.marks || 1;
+          let secNeg = q.negative_marks ?? 0.25;
+          if (parsedSections.length > 0) {
+            // Match by subject first
+            const secBySubj = parsedSections.find(s =>
+              s.subject && q.subject &&
+              s.subject.toLowerCase().trim() === q.subject.toLowerCase().trim()
+            );
+            if (secBySubj) {
+              secMarks = parseFloat(secBySubj.marks_per_question) || secMarks;
+              secNeg = parseFloat(secBySubj.negative_marks) ?? secNeg;
+            } else {
+              // Fall back to order-based assignment
+              let cumulative = 0;
+              for (const sec of parsedSections) {
+                cumulative += parseInt(sec.questions_count) || 0;
+                if (idx < cumulative) {
+                  secMarks = parseFloat(sec.marks_per_question) || secMarks;
+                  secNeg = parseFloat(sec.negative_marks) ?? secNeg;
+                  break;
+                }
+              }
+            }
+          }
+          return {
+            id: q.id,
+            text: q.question_text,
+            options: [q.option_a, q.option_b, q.option_c, q.option_d],
+            correct: q.correct_answer?.toLowerCase()?.trim(),
+            marks: secMarks,
+            negative: secNeg,
+            subject: q.subject || "General",
+            explanation: q.explanation || "",
+            image_url: q.image_url || null,
+          };
+        });
+        setSections(parsedSections);
+        setQuestions(qs);
         setLoading(false);
       })
       .catch(err => { setLoadError("Failed to load questions: " + err.message); setLoading(false); });
@@ -1300,10 +1597,21 @@ function ExamInterface({ setPage, activeTest }) {
     clearInterval(timerRef.current);
     let s = 0;
     questions.forEach(q => {
-      if (answers[q.id] === q.correct) s += q.marks;
-      else if (answers[q.id] !== undefined) s -= q.negative;
+      const userAns = answers[q.id]; // "a","b","c","d" or undefined
+      const correctAns = q.correct;  // "a","b","c","d"
+      const marks = parseFloat(q.marks) || 1;
+      const neg = parseFloat(q.negative) ?? 0.25;
+      if (userAns === undefined || userAns === null) {
+        // Unattempted — no change
+      } else if (String(userAns).toLowerCase().trim() === String(correctAns).toLowerCase().trim()) {
+        // Correct
+        s += marks;
+      } else {
+        // Wrong — apply negative marking
+        s -= neg;
+      }
     });
-    const finalScore = Math.max(0, parseFloat(s.toFixed(2)));
+    const finalScore = parseFloat(s.toFixed(2)); // Negative scores allowed
     const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
     setScore(finalScore);
     setSubmitted(true);
@@ -1316,6 +1624,15 @@ function ExamInterface({ setPage, activeTest }) {
     // Save attempt to Supabase
     if (user?.id && (activeTest?.test_id || activeTest?.id)) {
       try {
+        const correctCount = questions.filter(q => 
+          answers[q.id] !== undefined && 
+          String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim()
+        ).length;
+        const wrongCount = questions.filter(q => 
+          answers[q.id] !== undefined && 
+          String(answers[q.id]).toLowerCase().trim() !== String(q.correct).toLowerCase().trim()
+        ).length;
+        const unattemptedCount = questions.filter(q => answers[q.id] === undefined).length;
         await supabaseRequest("/attempts", {
           method: "POST",
           body: {
@@ -1323,17 +1640,52 @@ function ExamInterface({ setPage, activeTest }) {
             test_id: activeTest.test_id || activeTest.id,
             score: finalScore,
             total_marks: totalMarks,
-            time_taken: DURATION - timeLeft,
-            answers: answers,
+            correct_count: correctCount,
+            wrong_count: wrongCount,
+            unattempted_count: unattemptedCount,
+            time_taken_seconds: DURATION - timeLeft,
+            status: "completed",
+            submitted_at: new Date().toISOString(),
           },
           token: user.token,
           prefer: "return=minimal",
         });
       } catch(e) {
-        console.warn("Could not save attempt:", e.message);
       }
+      // Silently sync the test's total_marks in DB to match actual question marks
+      try {
+        if (activeTest?.test_id || activeTest?.id) {
+          await supabaseRequest(`/tests?id=eq.${activeTest.test_id || activeTest.id}`, {
+            method: "PATCH",
+            body: { total_marks: totalMarks },
+            token: user.token,
+            prefer: "return=minimal"
+          });
+        }
+      } catch(e) { /* non-critical */ }
     }
   }, [answers, submitted, questions, user, activeTest, timeLeft, DURATION]);
+
+  // Set body flag so DevTools blocker knows exam is active
+  useEffect(() => {
+    document.body.setAttribute("data-exam-active", "true");
+    // Listen for DevTools detection event
+    const handleDevTools = () => {
+      if (!submitted) {
+        setWarnings(w => {
+          const nw = w + 1;
+          setShowWarning(true);
+          if (nw >= 3) handleSubmit();
+          return nw;
+        });
+      }
+    };
+    document.addEventListener("mm-devtools-detected", handleDevTools);
+    return () => {
+      document.body.removeAttribute("data-exam-active");
+      document.removeEventListener("mm-devtools-detected", handleDevTools);
+    };
+  }, [submitted, handleSubmit]);
 
   useEffect(() => {
     if (loading || loadError) return;
@@ -1384,6 +1736,55 @@ function ExamInterface({ setPage, activeTest }) {
   const markedCount = Object.keys(marked).filter(k => marked[k]).length;
   const skipped = questions.filter((q,i) => i < current && answers[q.id] === undefined && !marked[q.id]).length;
 
+  // Section helpers
+  const SECT_COLORS = ["#FFD700","#4ade80","#818cf8","#fb923c","#f472b6","#22d3ee","#a78bfa","#34d399","#f87171","#60a5fa"];
+  const getSectionColor = (idx) => SECT_COLORS[idx % SECT_COLORS.length];
+
+  // Get questions for active section (or all)
+  const visibleQuestions = activeSection === null
+    ? questions
+    : questions.filter(q => {
+        const sec = sections[activeSection];
+        if (!sec) return true;
+        if (sec.subject && q.subject && sec.subject.toLowerCase().trim() === q.subject.toLowerCase().trim()) return true;
+        // Order based fallback
+        const secIdx = sections.indexOf(sec);
+        let start = 0;
+        for (let i = 0; i < secIdx; i++) start += parseInt(sections[i].questions_count)||0;
+        const end = start + (parseInt(sec.questions_count)||0);
+        const globalIdx = questions.indexOf(q);
+        return globalIdx >= start && globalIdx < end;
+      });
+
+  // Jump to first question of a section
+  const jumpToSection = (secIdx) => {
+    setActiveSection(secIdx);
+    if (secIdx === null) return;
+    const sec = sections[secIdx];
+    if (!sec) return;
+    // Find first question of this section
+    const firstQ = questions.findIndex(q => {
+      if (sec.subject && q.subject && sec.subject.toLowerCase().trim() === q.subject.toLowerCase().trim()) return true;
+      let start = 0;
+      for (let i = 0; i < secIdx; i++) start += parseInt(sections[i].questions_count)||0;
+      return questions.indexOf(q) === start;
+    });
+    if (firstQ >= 0) setCurrent(firstQ);
+  };
+
+  // Get section index of a question
+  const getQuestionSection = (q, idx) => {
+    if (!sections.length) return null;
+    const bySubject = sections.findIndex(s => s.subject && q.subject && s.subject.toLowerCase().trim() === q.subject.toLowerCase().trim());
+    if (bySubject >= 0) return bySubject;
+    let cumulative = 0;
+    for (let i = 0; i < sections.length; i++) {
+      cumulative += parseInt(sections[i].questions_count)||0;
+      if (idx < cumulative) return i;
+    }
+    return sections.length - 1;
+  };
+
   // Loading
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", background: "#080a14" }}>
@@ -1410,7 +1811,8 @@ function ExamInterface({ setPage, activeTest }) {
   // ─────────────────────────────────────────────
   if (submitted && score !== null) {
     const totalMarks = questions.reduce((s, q) => s + q.marks, 0);
-    const pct = Math.round(score / totalMarks * 100);
+    const pct = totalMarks > 0 ? Math.round(score / totalMarks * 100) : 0;
+    const isNegativeScore = score < 0;
     const correct = questions.filter(q => answers[q.id] === q.correct).length;
     const wrong = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== q.correct).length;
     const skippedQ = TOTAL - correct - wrong;
@@ -1452,14 +1854,16 @@ function ExamInterface({ setPage, activeTest }) {
           {/* Score hero */}
           <div style={{ background: "linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.05))", border: "1px solid rgba(255,215,0,0.2)", borderRadius: "20px", padding: "28px", marginBottom: "20px", textAlign: "center", animation: "fadeUp 0.6s ease" }}>
             <div style={{ fontSize: "clamp(3rem,8vw,5rem)", fontWeight: 900, fontFamily: "'Sora',sans-serif", color: dark ? "#FFD700" : "#92600A", lineHeight: 1 }}>{pct}%</div>
-            <div style={{ color: dark ? "#aaa" : "#777", fontSize: "15px", marginTop: "6px" }}>{score.toFixed(1)} out of {totalMarks} marks</div>
+            <div style={{ color: isNegativeScore ? "#ff6b6b" : (dark ? "#aaa" : "#777"), fontSize: "15px", marginTop: "6px" }}>
+              {isNegativeScore ? "⚠️ " : ""}{score.toFixed(2)} out of {totalMarks} marks{isNegativeScore ? " (negative score)" : ""}
+            </div>
             <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "8px", height: "8px", margin: "16px 0 8px", overflow: "hidden" }}>
               <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#FFD700,#FF8C00)", borderRadius: "8px", transition: "width 1.5s ease" }} />
             </div>
           </div>
 
           {/* Stats grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "12px", marginBottom: "20px", animation: "fadeUp 0.7s ease" }}>
+          <div className="results-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: "10px", marginBottom: "20px", animation: "fadeUp 0.7s ease" }}>
             {[
               { v: correct, l: "Correct", c: "#4ade80", icon: "✓" },
               { v: wrong, l: "Wrong", c: "#ff6b6b", icon: "✗" },
@@ -1486,6 +1890,51 @@ function ExamInterface({ setPage, activeTest }) {
 
           {activeResultTab === "overview" && (
             <div style={{ animation: "fadeUp 0.3s ease" }}>
+
+              {/* Section-wise Breakdown */}
+              {sections.length > 0 && (
+                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", marginBottom: "16px" }}>
+                  <h3 style={{ color: dark ? "#aaa" : "#888", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>📚 Section-wise Breakdown</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {sections.map((sec, i) => {
+                      const secColor = sec.color || getSectionColor(i);
+                      const secQs = questions.filter((q, qi) => getQuestionSection(q, qi) === i);
+                      const secCorrect = secQs.filter(q => answers[q.id] !== undefined && String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim()).length;
+                      const secWrong = secQs.filter(q => answers[q.id] !== undefined && String(answers[q.id]).toLowerCase().trim() !== String(q.correct).toLowerCase().trim()).length;
+                      const secSkipped = secQs.filter(q => answers[q.id] === undefined).length;
+                      const secMaxMarks = secQs.reduce((s, q) => s + q.marks, 0);
+                      const secScore = parseFloat(secQs.reduce((s, q) => {
+                        if (answers[q.id] === undefined) return s;
+                        return String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim() ? s + q.marks : s - q.negative;
+                      }, 0).toFixed(2));
+                      const secPct = secMaxMarks > 0 ? Math.max(0, Math.round((secScore / secMaxMarks) * 100)) : 0;
+                      return (
+                        <div key={i} style={{ background: `${secColor}08`, border: `1px solid ${secColor}30`, borderRadius: "12px", padding: "14px 16px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <div style={{ width: 10, height: 10, borderRadius: "50%", background: secColor, flexShrink: 0 }} />
+                              <span style={{ color: secColor, fontWeight: 700, fontSize: "14px" }}>{sec.name}</span>
+                              {sec.subject && <span style={{ color: "#666", fontSize: "12px" }}>· {sec.subject}</span>}
+                              <span style={{ color: "#555", fontSize: "11px" }}>{secQs.length} Qs</span>
+                            </div>
+                            <div style={{ display: "flex", gap: "10px", fontSize: "12px", flexWrap: "wrap" }}>
+                              <span style={{ color: "#4ade80", fontWeight: 600 }}>✓ {secCorrect}</span>
+                              <span style={{ color: "#ff6b6b", fontWeight: 600 }}>✗ {secWrong}</span>
+                              <span style={{ color: "#666" }}>— {secSkipped}</span>
+                              <span style={{ color: secScore < 0 ? "#ff6b6b" : secColor, fontWeight: 800 }}>{secScore < 0 ? "⚠️ " : ""}{secScore}/{secMaxMarks}</span>
+                            </div>
+                          </div>
+                          <div style={{ height: "6px", borderRadius: "3px", background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${secPct}%`, background: secColor, borderRadius: "3px", transition: "width 1s ease" }} />
+                          </div>
+                          <div style={{ color: "#555", fontSize: "11px", marginTop: "5px" }}>{secPct}% score rate · +{sec.marks_per_question}/correct · -{sec.negative_marks}/wrong</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Subject Breakdown */}
               <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "20px", marginBottom: "16px" }}>
                 <h3 style={{ color: dark ? "#aaa" : "#888", fontSize: "12px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>Subject-wise Performance</h3>
@@ -1635,9 +2084,20 @@ function ExamInterface({ setPage, activeTest }) {
           </div>
         ))}
       </div>
+      {/* Section filter in palette */}
+      {sections.length > 0 && (
+        <div style={{ marginBottom: "10px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+          <button onClick={() => setActiveSection(null)} style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "10px", border: "none", cursor: "pointer", background: activeSection === null ? "rgba(255,215,0,0.2)" : "rgba(255,255,255,0.06)", color: activeSection === null ? "#FFD700" : "#666" }}>All</button>
+          {sections.map((sec, i) => {
+            const c = sec.color || getSectionColor(i);
+            return <button key={i} onClick={() => jumpToSection(i)} style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "10px", border: "none", cursor: "pointer", background: activeSection === i ? `${c}30` : "rgba(255,255,255,0.06)", color: activeSection === i ? c : "#666" }}>{sec.name}</button>;
+          })}
+        </div>
+      )}
       {/* Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "6px" }}>
-        {questions.map((qq, i) => {
+        {(activeSection === null ? questions : visibleQuestions).map((qq, _) => {
+          const i = questions.indexOf(qq);
           const status = getStatus(qq, i);
           const isCurrent = i === current;
           const sc = statusColor(status, isCurrent);
@@ -1700,7 +2160,7 @@ function ExamInterface({ setPage, activeTest }) {
       }}>
         {/* Left: Test name */}
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
+          <div className="exam-topbar-title" style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
           <div style={{ color: dark ? "#555" : "#888", fontSize: "11px" }}>Q{current+1}/{TOTAL} • {answered} answered</div>
         </div>
 
@@ -1728,18 +2188,71 @@ function ExamInterface({ setPage, activeTest }) {
         </div>
       </div>
 
+      {/* Section Tabs — shown only when test has sections */}
+      {sections.length > 0 && (
+        <div style={{
+          background: dark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.04)",
+          borderBottom: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.1)",
+          display: "flex", overflowX: "auto", flexShrink: 0, padding: "0 8px",
+          gap: "2px", alignItems: "stretch", scrollbarWidth: "none"
+        }} className="custom-scroll section-tabs-bar">
+          {/* All tab */}
+          <button onClick={() => setActiveSection(null)} style={{
+            padding: "10px 16px", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+            background: activeSection === null ? "rgba(255,215,0,0.12)" : "transparent",
+            color: activeSection === null ? "#FFD700" : "#666",
+            fontWeight: activeSection === null ? 700 : 400, fontSize: "13px",
+            borderBottom: activeSection === null ? "2px solid #FFD700" : "2px solid transparent",
+            transition: "all 0.15s"
+          }}>
+            All ({questions.length})
+          </button>
+          {sections.map((sec, i) => {
+            const secColor = sec.color || getSectionColor(i);
+            const secQs = questions.filter((q, qi) => getQuestionSection(q, qi) === i);
+            const secAns = secQs.filter(q => answers[q.id] !== undefined).length;
+            const isActive = activeSection === i;
+            return (
+              <button key={i} onClick={() => jumpToSection(i)} style={{
+                padding: "10px 16px", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+                background: isActive ? `${secColor}15` : "transparent",
+                color: isActive ? secColor : "#666",
+                fontWeight: isActive ? 700 : 400, fontSize: "13px",
+                borderBottom: isActive ? `2px solid ${secColor}` : "2px solid transparent",
+                transition: "all 0.15s", display: "flex", alignItems: "center", gap: "7px"
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: secColor, flexShrink: 0 }} />
+                {sec.name}{sec.subject && ` · ${sec.subject}`}
+                <span style={{ background: `${secColor}22`, color: secColor, fontSize: "11px", padding: "1px 6px", borderRadius: "10px", fontWeight: 700 }}>
+                  {secAns}/{secQs.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Main layout */}
       <div style={{ display: "flex", flex: 1, maxWidth: "1200px", width: "100%", margin: "0 auto", padding: "16px", gap: "20px", overflow: "hidden" }}>
 
         {/* Question area */}
-        <div className="custom-scroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: "8px", paddingBottom: "80px" }}>
+        <div className="custom-scroll exam-q-area" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: "8px", paddingBottom: "80px" }}>
           {/* Question header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: dark ? "#FFD700" : "#92600A", padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>Q {current+1}</span>
+              {(() => {
+                const secIdx = getQuestionSection(q, current);
+                if (secIdx !== null && sections[secIdx]) {
+                  const sec = sections[secIdx];
+                  const c = sec.color || getSectionColor(secIdx);
+                  return <span style={{ background: `${c}18`, border: `1px solid ${c}44`, color: c, padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>{sec.name}</span>;
+                }
+                return null;
+              })()}
               <span style={{ background: "rgba(255,255,255,0.06)", color: "#888", padding: "3px 10px", borderRadius: "6px", fontSize: "12px" }}>{q.subject}</span>
-              <span style={{ color: "#4ade80", fontSize: "12px" }}>+{q.marks}</span>
-              <span style={{ color: "#ff6b6b", fontSize: "12px" }}>-{q.negative}</span>
+              <span style={{ color: "#4ade80", fontSize: "12px", fontWeight: 700 }}>+{q.marks}</span>
+              <span style={{ color: "#ff6b6b", fontSize: "12px", fontWeight: 700 }}>-{q.negative}</span>
             </div>
             <button
               onClick={() => setMarked(prev => ({ ...prev, [q.id]: !prev[q.id] }))}
@@ -1787,7 +2300,13 @@ function ExamInterface({ setPage, activeTest }) {
 
           {/* Navigation */}
           <div style={{ display: "flex", gap: "10px", justifyContent: "space-between", alignItems: "center" }}>
-            <button onClick={() => setCurrent(c => Math.max(0, c-1))} disabled={current===0} style={{
+            <button onClick={() => {
+                    if (activeSection !== null) {
+                      const secIdxs = questions.map((q,i)=>i).filter(i => getQuestionSection(questions[i],i) === activeSection);
+                      const prev = [...secIdxs].reverse().find(i => i < current);
+                      setCurrent(prev !== undefined ? prev : Math.max(0, current-1));
+                    } else { setCurrent(c => Math.max(0, c-1)); }
+                  }} disabled={current===0} style={{
               background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
               color: current===0 ? (dark ? "#333" : "#bbb") : (dark ? "#fff" : "#111"), padding: "11px 22px",
               borderRadius: "9px", cursor: current===0 ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: 600
@@ -1798,13 +2317,26 @@ function ExamInterface({ setPage, activeTest }) {
                 background: "transparent", border: "1px solid rgba(255,100,100,0.3)",
                 color: "#ff6b6b", padding: "11px 16px", borderRadius: "9px", cursor: "pointer", fontSize: "13px"
               }}>Clear</button>
-              <button onClick={() => { setMarked(prev => ({ ...prev, [q.id]: true })); setCurrent(c => Math.min(TOTAL-1, c+1)); }} style={{
+              <button onClick={() => {
+                    setMarked(prev => ({ ...prev, [q.id]: true }));
+                    if (activeSection !== null) {
+                      const secIdxs = questions.map((q,i)=>i).filter(i => getQuestionSection(questions[i],i) === activeSection);
+                      const nxt = secIdxs.find(i => i > current);
+                      setCurrent(nxt !== undefined ? nxt : Math.min(TOTAL-1, current+1));
+                    } else { setCurrent(c => Math.min(TOTAL-1, c+1)); }
+                  }} style={{
                 background: "rgba(251,146,60,0.1)", border: "1px solid rgba(251,146,60,0.3)",
                 color: "#fb923c", padding: "11px 14px", borderRadius: "9px", cursor: "pointer", fontSize: "13px"
               }}>Mark & Next</button>
             </div>
 
-            <button onClick={() => setCurrent(c => Math.min(TOTAL-1, c+1))} disabled={current===TOTAL-1} style={{
+            <button onClick={() => {
+                    if (activeSection !== null) {
+                      const secIdxs = questions.map((q,i)=>i).filter(i => getQuestionSection(questions[i],i) === activeSection);
+                      const nxt = secIdxs.find(i => i > current);
+                      setCurrent(nxt !== undefined ? nxt : Math.min(TOTAL-1, current+1));
+                    } else { setCurrent(c => Math.min(TOTAL-1, c+1)); }
+                  }} disabled={current===TOTAL-1} style={{
               background: current===TOTAL-1 ? "rgba(255,255,255,0.05)" : "linear-gradient(135deg,#FFD700,#FF8C00)",
               border: "none", color: current===TOTAL-1 ? "#333" : "#000",
               padding: "11px 22px", borderRadius: "9px",
@@ -1858,7 +2390,7 @@ function ExamInterface({ setPage, activeTest }) {
 }
 
 // PRICING PAGE
-function PricingPage({ setPage }) {
+function PricingPage({ setPage, user }) {
   const dark = useTheme();
   const features = [
     { icon: "📝", title: "Unlimited Mock Tests", desc: "Full-length mock tests for all exams — no limits, no paywalls." },
@@ -1915,12 +2447,12 @@ function PricingPage({ setPage }) {
             </div>
           ))}
         </div>
-        <button onClick={() => setPage("auth")} style={{
+        <button onClick={() => setPage(user ? "exams" : "auth")} style={{
           background: "linear-gradient(135deg, #FFD700, #FF8C00)",
           border: "none", color: "#000", padding: "16px 48px",
           borderRadius: "12px", cursor: "pointer", fontSize: "17px", fontWeight: 800,
           boxShadow: "0 4px 20px rgba(255,215,0,0.3)"
-        }}>Start Practicing Free →</button>
+        }}>{user ? "Browse Exams →" : "Start Practicing Free →"}</button>
       </div>
 
       {/* Bottom note */}
@@ -2045,7 +2577,8 @@ function AdminOrganizations({ user }) {
   );
 }
 
-// ADMIN EXAMS COMPONENT
+
+// ADMIN EXAMS COMPONENT — Advanced with Sections
 function AdminExams({ user }) {
   const dark = useTheme();
   const [exams, setExams] = useState([]);
@@ -2055,20 +2588,38 @@ function AdminExams({ user }) {
   const [editExam, setEditExam] = useState(null);
   const [expandedExam, setExpandedExam] = useState(null);
   const [tests, setTests] = useState({});
-  const [showTestForm, setShowTestForm] = useState(null);
+  const [showTestForm, setShowTestForm] = useState(null); // exam id
   const [editTest, setEditTest] = useState(null);
   const [msg, setMsg] = useState("");
+  const [activeTab, setActiveTab] = useState("basic"); // "basic" | "sections" | "instructions"
+
+  const SECTION_COLORS = ["#FFD700","#4ade80","#818cf8","#fb923c","#f472b6","#22d3ee","#a78bfa","#34d399","#f87171","#60a5fa"];
+  const PRESET_SUBJECTS = ["Mathematics","Reasoning","General Knowledge","English","Science","History","Geography","Computer","Current Affairs","Hindi","Odia","Physics","Chemistry","Biology"];
 
   const emptyExam = { name: "", organization_id: "", description: "", is_published: false, is_free: false };
-  const emptyTest = { name: "", test_type: "mock", duration_minutes: 60, total_marks: 100, negative_value: 0.25, instructions: "", is_published: false };
+  const emptyTest = {
+    name: "", test_type: "mock", duration_minutes: 60,
+    total_marks: 100, negative_value: 0.25,
+    instructions: "", is_published: false, sections: []
+  };
+  const emptySection = {
+    name: "Section A", subject: "", questions_count: 20,
+    marks_per_question: 1, negative_marks: 0.25,
+    instructions: "", time_limit: 0, color: "#FFD700"
+  };
+
   const [examForm, setExamForm] = useState(emptyExam);
   const [testForm, setTestForm] = useState(emptyTest);
+  // Section builder state
+  const [sectionForm, setSectionForm] = useState(emptySection);
+  const [editingSectionIdx, setEditingSectionIdx] = useState(null);
+  const [showSectionForm, setShowSectionForm] = useState(false);
+  const [dragOver, setDragOver] = useState(null);
 
   const loadExams = () => {
     setLoading(true);
     supabaseRequest("/exams?select=*,organizations(name,color)&order=created_at.desc", { token: user.token })
-      .then(data => { setExams(data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(data => { setExams(data || []); setLoading(false); }).catch(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -2082,19 +2633,11 @@ function AdminExams({ user }) {
     setTests(prev => ({ ...prev, [examId]: data || [] }));
   };
 
-  const toSlug = (str) => str.toLowerCase().trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
+  const toSlug = (str) => str.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-");
 
   const saveExam = async () => {
     if (!examForm.name.trim()) { setMsg("❌ Exam name is required"); return; }
-    const slug = toSlug(examForm.name);
-    const body = {
-      ...examForm,
-      slug,
-      organization_id: examForm.organization_id || null,
-    };
+    const body = { ...examForm, slug: toSlug(examForm.name), organization_id: examForm.organization_id || null };
     try {
       if (editExam) {
         await supabaseRequest(`/exams?id=eq.${editExam.id}`, { method: "PATCH", body, token: user.token });
@@ -2115,15 +2658,25 @@ function AdminExams({ user }) {
 
   const saveTest = async (examId) => {
     if (!testForm.name.trim()) { setMsg("❌ Test name is required"); return; }
+    const sections = testForm.sections || [];
+    const autoMarks = sections.length > 0
+      ? sections.reduce((s, sec) => s + ((parseInt(sec.questions_count)||0) * (parseFloat(sec.marks_per_question)||1)), 0)
+      : testForm.total_marks;
     try {
-      const body = { ...testForm, exam_id: examId };
+      const body = {
+        ...testForm,
+        exam_id: examId,
+        total_marks: autoMarks,
+        sections: sections.length > 0 ? JSON.stringify(sections) : null,
+      };
       if (editTest) {
-        // Include exam_id in PATCH too so it's never lost
         await supabaseRequest(`/tests?id=eq.${editTest.id}`, { method: "PATCH", body, token: user.token });
       } else {
         await supabaseRequest("/tests", { method: "POST", body, token: user.token });
       }
-      setShowTestForm(null); setEditTest(null); setTestForm(emptyTest); loadTests(examId);
+      setShowTestForm(null); setEditTest(null); setTestForm(emptyTest);
+      setActiveTab("basic");
+      loadTests(examId);
       setMsg("✅ Test saved!");
     } catch(e) { setMsg("❌ " + e.message); }
   };
@@ -2134,132 +2687,716 @@ function AdminExams({ user }) {
     loadTests(examId);
   };
 
-  const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
+  // Section helpers
+  const sectionStats = (sections = []) => ({
+    totalQ: sections.reduce((s, sec) => s + (parseInt(sec.questions_count)||0), 0),
+    totalM: sections.reduce((s, sec) => s + ((parseInt(sec.questions_count)||0) * (parseFloat(sec.marks_per_question)||1)), 0),
+    hasTimeLimits: sections.some(s => (parseInt(s.time_limit)||0) > 0),
+    hasMixedMarks: new Set(sections.map(s => s.marks_per_question)).size > 1,
+  });
+
+  const addOrUpdateSection = () => {
+    if (!sectionForm.name.trim()) return;
+    const sections = [...(testForm.sections || [])];
+    const color = sectionForm.color || SECTION_COLORS[sections.length % SECTION_COLORS.length];
+    if (editingSectionIdx !== null) {
+      sections[editingSectionIdx] = { ...sectionForm, color };
+      setEditingSectionIdx(null);
+    } else {
+      sections.push({ ...sectionForm, color });
+    }
+    setTestForm(p => ({ ...p, sections }));
+    setSectionForm({ ...emptySection, name: `Section ${String.fromCharCode(65 + sections.length)}`, color: SECTION_COLORS[sections.length % SECTION_COLORS.length] });
+    setShowSectionForm(false);
+  };
+
+  const removeSection = (idx) => {
+    const sections = (testForm.sections || []).filter((_, i) => i !== idx);
+    setTestForm(p => ({ ...p, sections }));
+  };
+
+  const duplicateSection = (idx) => {
+    const sections = [...(testForm.sections || [])];
+    const copy = { ...sections[idx], name: sections[idx].name + " (Copy)", color: SECTION_COLORS[(sections.length) % SECTION_COLORS.length] };
+    sections.splice(idx + 1, 0, copy);
+    setTestForm(p => ({ ...p, sections }));
+  };
+
+  const moveSectionUp = (idx) => {
+    if (idx === 0) return;
+    const sections = [...(testForm.sections || [])];
+    [sections[idx - 1], sections[idx]] = [sections[idx], sections[idx - 1]];
+    setTestForm(p => ({ ...p, sections }));
+  };
+
+  const moveSectionDown = (idx) => {
+    const sections = [...(testForm.sections || [])];
+    if (idx >= sections.length - 1) return;
+    [sections[idx], sections[idx + 1]] = [sections[idx + 1], sections[idx]];
+    setTestForm(p => ({ ...p, sections }));
+  };
+
+  const parseSections = (test) => {
+    if (!test?.sections) return [];
+    try { return typeof test.sections === "string" ? JSON.parse(test.sections) : test.sections; }
+    catch { return []; }
+  };
+
+  const openTestForm = (examId, test = null) => {
+    setEditTest(test);
+    if (test) {
+      const secs = parseSections(test);
+      setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published, sections: secs });
+    } else {
+      setTestForm(emptyTest);
+    }
+    setActiveTab("basic");
+    setShowSectionForm(false);
+    setEditingSectionIdx(null);
+    setShowTestForm(examId);
+  };
+
+  // Styles
+  const inp = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.12)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
+  const lbl = { color: dark ? "#888" : "#666", fontSize: "11px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", display: "block", marginBottom: "5px" };
+  const stats = sectionStats(testForm.sections);
 
   return (
-    <div style={{ maxWidth: "900px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
-        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Exams & Tests</h1>
-        <button onClick={() => { setShowForm(true); setEditExam(null); setExamForm(emptyExam); }} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>+ New Exam</button>
+    <div style={{ maxWidth: "1000px" }}>
+      <style>{`
+        .sec-row:hover { background: rgba(255,255,255,0.06) !important; }
+        .admin-tab-btn { transition: all 0.15s; }
+        .admin-tab-btn:hover { opacity: 1 !important; }
+        .preset-chip:hover { background: rgba(255,215,0,0.2) !important; border-color: rgba(255,215,0,0.5) !important; }
+        .sec-action-btn:hover { opacity: 0.8; transform: scale(1.05); }
+        @media (max-width: 600px) {
+          .test-grid { grid-template-columns: 1fr !important; }
+          .sec-grid { grid-template-columns: 1fr 1fr !important; }
+          .exam-actions { flex-direction: column !important; }
+        }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
+        <div>
+          <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0, fontSize: "clamp(20px,4vw,28px)" }}>Exams & Tests</h1>
+          <p style={{ color: "#555", fontSize: "13px", marginTop: "4px" }}>Create exams • Configure tests • Define section-wise marking schemes</p>
+        </div>
+        <button onClick={() => { setShowForm(true); setEditExam(null); setExamForm(emptyExam); }}
+          style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+          + New Exam
+        </button>
       </div>
 
-      {msg && <div style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "14px" }}>{msg}</div>}
+      {/* Message */}
+      {msg && <div onClick={() => setMsg("")} style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "14px", cursor: "pointer", padding: "10px 14px", background: msg.startsWith("✅") ? "rgba(74,222,128,0.1)" : "rgba(255,50,50,0.1)", borderRadius: "8px", border: msg.startsWith("✅") ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,50,50,0.3)" }}>{msg} <span style={{ float: "right", opacity: 0.5 }}>✕</span></div>}
 
       {/* Exam Form */}
       {showForm && (
-        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "14px", padding: "20px", marginBottom: "20px" }}>
-          <h3 style={{ color: dark ? "#FFD700" : "#92600A", marginBottom: "16px" }}>{editExam ? "Edit Exam" : "New Exam"}</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-            <div>
-              <label style={{ color: "#aaa", fontSize: "12px" }}>Exam Name *</label>
-              <input value={examForm.name} onChange={e => setExamForm(p => ({...p, name: e.target.value}))} style={inputS} placeholder="e.g. Constable Recruitment 2025" />
-            </div>
-           <div>
-              <label style={{ color: "#aaa", fontSize: "12px" }}>Organization</label>
-              <select value={examForm.organization_id} onChange={e => setExamForm(p => ({...p, organization_id: e.target.value}))}
-                style={{ ...inputS }}>
+        <div style={{ background: dark ? "rgba(255,215,0,0.04)" : "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: "16px", padding: "20px", marginBottom: "20px" }}>
+          <h3 style={{ color: "#FFD700", marginBottom: "16px", fontFamily: "'Sora',sans-serif", fontSize: "16px" }}>{editExam ? "✏️ Edit Exam" : "➕ New Exam"}</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "12px" }}>
+            <div><label style={lbl}>Exam Name *</label><input value={examForm.name} onChange={e => setExamForm(p => ({...p, name: e.target.value}))} style={inp} placeholder="e.g. Constable Recruitment 2025" /></div>
+            <div><label style={lbl}>Organization</label>
+              <select value={examForm.organization_id} onChange={e => setExamForm(p => ({...p, organization_id: e.target.value}))} style={inp}>
                 <option value="">-- Select Organization --</option>
                 {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
-              {/* Added helper warning */}
-              {orgs.length === 0 && (
-                <div style={{ color: "#ff6b6b", fontSize: "11px", marginTop: "4px" }}>
-                  No organizations found. Please add one in the Organizations tab first.
-                </div>
-              )}
             </div>
+            <div><label style={lbl}>Description</label><input value={examForm.description} onChange={e => setExamForm(p => ({...p, description: e.target.value}))} style={inp} placeholder="Short description" /></div>
           </div>
-          <div style={{ marginBottom: "12px" }}>
-            <label style={{ color: "#aaa", fontSize: "12px" }}>Description</label>
-            <input value={examForm.description} onChange={e => setExamForm(p => ({...p, description: e.target.value}))} style={inputS} placeholder="Short description" />
-          </div>
-          <div style={{ display: "flex", gap: "20px", marginBottom: "16px" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "14px", cursor: "pointer" }}>
-              <input type="checkbox" checked={examForm.is_published} onChange={e => setExamForm(p => ({...p, is_published: e.target.checked}))} /> Published
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "14px", cursor: "pointer" }}>
-              <input type="checkbox" checked={examForm.is_free} onChange={e => setExamForm(p => ({...p, is_free: e.target.checked}))} /> Free
-            </label>
+          <div style={{ display: "flex", gap: "20px", marginBottom: "16px", flexWrap: "wrap" }}>
+            {[["is_published","✅ Published"],["is_free","🆓 Free"]].map(([k,l]) => (
+              <label key={k} style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "14px", cursor: "pointer" }}>
+                <input type="checkbox" checked={examForm[k]} onChange={e => setExamForm(p => ({...p, [k]: e.target.checked}))} /> {l}
+              </label>
+            ))}
           </div>
           <div style={{ display: "flex", gap: "10px" }}>
-            <button onClick={saveExam} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>Save</button>
-            <button onClick={() => { setShowForm(false); setEditExam(null); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#aaa", padding: "10px 20px", borderRadius: "8px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveExam} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>Save Exam</button>
+            <button onClick={() => { setShowForm(false); setEditExam(null); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa", padding: "10px 20px", borderRadius: "8px", cursor: "pointer" }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {loading ? <div style={{ color: "#666", padding: "20px" }}>Loading...</div> : (
+      {/* Exam List */}
+      {loading ? <div style={{ color: "#666", padding: "40px", textAlign: "center" }}>Loading exams...</div> : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {exams.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "40px" }}>No exams yet. Create your first exam!</div>}
+          {exams.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "60px 20px", background: dark ? "rgba(255,255,255,0.02)" : "#f9f9f9", borderRadius: "16px", border: dark ? "1px dashed rgba(255,255,255,0.08)" : "1px dashed #ddd" }}>No exams yet. Create your first exam!</div>}
           {exams.map(exam => (
-            <div key={exam.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", overflow: "hidden" }}>
+            <div key={exam.id} style={{ background: dark ? "rgba(255,255,255,0.03)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)", borderRadius: "14px", overflow: "hidden" }}>
+              {/* Exam Header */}
               <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <button onClick={() => { const id = exam.id; setExpandedExam(expandedExam === id ? null : id); if (expandedExam !== id) loadTests(id); }} style={{ background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "14px" }}>
-                    {expandedExam === exam.id ? "▼" : "▶"}
-                  </button>
+                  <button onClick={() => { const id = exam.id; setExpandedExam(expandedExam === id ? null : id); if (expandedExam !== id) loadTests(id); }}
+                    style={{ background: "rgba(255,255,255,0.08)", border: "none", color: dark ? "#fff" : "#111", width: 30, height: 30, borderRadius: "8px", cursor: "pointer", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s", transform: expandedExam === exam.id ? "rotate(90deg)" : "none" }}>▶</button>
                   <div>
-                    <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600 }}>{exam.name}</div>
-                    <div style={{ color: "#555", fontSize: "12px" }}>{exam.organizations?.name || "No org"} • {exam.is_published ? <span style={{ color: "#4ade80" }}>Published</span> : <span style={{ color: "#ff6b6b" }}>Draft</span>} {exam.is_free && <span style={{ color: "#4ade80" }}> • Free</span>}</div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "15px" }}>{exam.name}</div>
+                    <div style={{ color: "#666", fontSize: "12px", marginTop: "2px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {exam.organizations?.name && <span style={{ background: "rgba(255,255,255,0.06)", padding: "1px 7px", borderRadius: "10px" }}>{exam.organizations.name}</span>}
+                      <span style={{ color: exam.is_published ? "#4ade80" : "#ff6b6b" }}>● {exam.is_published ? "Published" : "Draft"}</span>
+                      {exam.is_free && <span style={{ color: "#4ade80" }}>🆓 Free</span>}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div className="exam-actions" style={{ display: "flex", gap: "8px" }}>
                   <button onClick={() => { setEditExam(exam); setExamForm({ name: exam.name, organization_id: exam.organization_id || "", description: exam.description || "", is_published: exam.is_published, is_free: exam.is_free }); setShowForm(true); }} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Edit</button>
                   <button onClick={() => deleteExam(exam.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Delete</button>
                 </div>
               </div>
 
-              {/* Tests section */}
+              {/* Tests Panel */}
               {expandedExam === exam.id && (
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "16px 20px", background: "rgba(0,0,0,0.2)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                    <div style={{ color: "#aaa", fontSize: "13px", fontWeight: 600 }}>Tests</div>
-                    <button onClick={() => { setShowTestForm(exam.id); setEditTest(null); setTestForm(emptyTest); }} style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", padding: "5px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>+ Add Test</button>
+                <div style={{ borderTop: `1px solid ${dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`, background: dark ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.02)" }}>
+                  <div style={{ padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                    <div style={{ color: "#666", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Tests ({(tests[exam.id] || []).length})</div>
+                    <button onClick={() => openTestForm(exam.id)} style={{ background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)", color: "#4ade80", padding: "6px 16px", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: 700 }}>+ Add Test</button>
                   </div>
 
-                  {/* Test Form */}
+                  {/* ══════════════════════════════════════════ */}
+                  {/* ADVANCED TEST FORM */}
+                  {/* ══════════════════════════════════════════ */}
                   {showTestForm === exam.id && (
-                    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "10px", padding: "16px", marginBottom: "12px" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Test Name *</label><input value={testForm.name} onChange={e => setTestForm(p => ({...p, name: e.target.value}))} style={inputS} placeholder="e.g. Mathematics Practice Set 1" /></div>
-                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Type</label>
-                          <select value={testForm.test_type} onChange={e => setTestForm(p => ({...p, test_type: e.target.value}))} style={{ ...inputS }}>
-                            <option value="mock">Mock Test</option>
-                            <option value="sectional">Sectional Test</option>
-                            <option value="pyq">PYQ</option>
-                          </select>
+                    <div style={{ margin: "0 16px 16px", background: dark ? "rgba(255,215,0,0.03)" : "#fffdf0", border: "1px solid rgba(255,215,0,0.2)", borderRadius: "14px", overflow: "hidden" }}>
+                      {/* Form Header */}
+                      <div style={{ padding: "16px 20px", background: dark ? "rgba(255,215,0,0.06)" : "rgba(255,215,0,0.1)", borderBottom: "1px solid rgba(255,215,0,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                        <div>
+                          <div style={{ color: "#FFD700", fontWeight: 800, fontSize: "15px", fontFamily: "'Sora',sans-serif" }}>{editTest ? "✏️ Edit Test" : "➕ Create New Test"}</div>
+                          <div style={{ color: "#666", fontSize: "12px", marginTop: "2px" }}>Configure test details, sections, and marking scheme</div>
                         </div>
-                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Duration (mins)</label><input type="number" value={testForm.duration_minutes} onChange={e => setTestForm(p => ({...p, duration_minutes: parseInt(e.target.value)}))} style={inputS} /></div>
-                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Total Marks</label><input type="number" value={testForm.total_marks} onChange={e => setTestForm(p => ({...p, total_marks: parseInt(e.target.value)}))} style={inputS} /></div>
-                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Negative Marks</label><input type="number" step="0.25" value={testForm.negative_value} onChange={e => setTestForm(p => ({...p, negative_value: parseFloat(e.target.value)}))} style={inputS} /></div>
-                        <div><label style={{ color: "#aaa", fontSize: "11px" }}>Instructions</label><input value={testForm.instructions} onChange={e => setTestForm(p => ({...p, instructions: e.target.value}))} style={inputS} placeholder="Optional" /></div>
+                        {/* Live Stats */}
+                        {testForm.sections.length > 0 && (
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            <div style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: "8px", padding: "6px 12px", textAlign: "center" }}>
+                              <div style={{ color: "#FFD700", fontWeight: 800, fontSize: "18px" }}>{stats.totalQ}</div>
+                              <div style={{ color: "#888", fontSize: "10px" }}>Questions</div>
+                            </div>
+                            <div style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: "8px", padding: "6px 12px", textAlign: "center" }}>
+                              <div style={{ color: "#4ade80", fontWeight: 800, fontSize: "18px" }}>{stats.totalM}</div>
+                              <div style={{ color: "#888", fontSize: "10px" }}>Total Marks</div>
+                            </div>
+                            <div style={{ background: "rgba(129,140,248,0.1)", border: "1px solid rgba(129,140,248,0.25)", borderRadius: "8px", padding: "6px 12px", textAlign: "center" }}>
+                              <div style={{ color: "#818cf8", fontWeight: 800, fontSize: "18px" }}>{testForm.sections.length}</div>
+                              <div style={{ color: "#888", fontSize: "10px" }}>Sections</div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#aaa", fontSize: "13px", cursor: "pointer", marginBottom: "12px" }}>
-                        <input type="checkbox" checked={testForm.is_published} onChange={e => setTestForm(p => ({...p, is_published: e.target.checked}))} /> Published
-                      </label>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button onClick={() => saveTest(exam.id)} style={{ background: "linear-gradient(135deg,#4ade80,#22c55e)", border: "none", color: "#000", padding: "8px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>Save Test</button>
-                        <button onClick={() => { setShowTestForm(null); setEditTest(null); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
+
+                      {/* Tab Navigation */}
+                      <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.08)", background: dark ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.03)" }}>
+                        {[["basic","⚙️ Basic Info"],["sections","📚 Sections & Marks"],["instructions","📋 Instructions"]].map(([tab, label]) => (
+                          <button key={tab} className="admin-tab-btn" onClick={() => setActiveTab(tab)}
+                            style={{ flex: 1, padding: "12px 8px", background: "transparent", border: "none", borderBottom: activeTab === tab ? "2px solid #FFD700" : "2px solid transparent", color: activeTab === tab ? "#FFD700" : "#555", cursor: "pointer", fontSize: "clamp(11px,2.5vw,13px)", fontWeight: activeTab === tab ? 700 : 400, transition: "all 0.15s", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {label}
+                            {tab === "sections" && testForm.sections.length > 0 && <span style={{ background: "#FFD700", color: "#000", borderRadius: "10px", padding: "1px 6px", fontSize: "10px", marginLeft: "5px", fontWeight: 800 }}>{testForm.sections.length}</span>}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div style={{ padding: "20px" }}>
+
+                        {/* ── TAB 1: Basic Info ── */}
+                        {activeTab === "basic" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                            <div className="test-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                              <div style={{ gridColumn: "span 2" }}>
+                                <label style={lbl}>Test Name *</label>
+                                <input value={testForm.name} onChange={e => setTestForm(p => ({...p, name: e.target.value}))} style={inp} placeholder="e.g. Mathematics Practice Set 01" />
+                              </div>
+                              <div>
+                                <label style={lbl}>Test Type</label>
+                                <select value={testForm.test_type} onChange={e => setTestForm(p => ({...p, test_type: e.target.value}))} style={inp}>
+                                  <option value="mock">📝 Mock Test (Full)</option>
+                                  <option value="sectional">📚 Sectional Test</option>
+                                  <option value="pyq">📜 PYQ (Previous Year)</option>
+                                  <option value="practice">🎯 Practice Set</option>
+                                  <option value="speed">⚡ Speed Test</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label style={lbl}>Duration (minutes)</label>
+                                <input type="number" min="1" value={testForm.duration_minutes} onChange={e => setTestForm(p => ({...p, duration_minutes: parseInt(e.target.value)||60}))} style={inp} />
+                              </div>
+                              <div>
+                                <label style={lbl}>
+                                  Total Marks
+                                  {testForm.sections.length > 0 && <span style={{ color: "#4ade80", marginLeft: "6px", textTransform: "none", fontWeight: 400 }}>← auto from sections</span>}
+                                </label>
+                                <input type="number" value={testForm.sections.length > 0 ? stats.totalM : testForm.total_marks}
+                                  disabled={testForm.sections.length > 0}
+                                  onChange={e => setTestForm(p => ({...p, total_marks: parseInt(e.target.value)||0}))}
+                                  style={{...inp, opacity: testForm.sections.length > 0 ? 0.5 : 1, cursor: testForm.sections.length > 0 ? "not-allowed" : "text"}} />
+                              </div>
+                              <div>
+                                <label style={lbl}>Default Negative Marks</label>
+                                <input type="number" step="0.25" min="0" value={testForm.negative_value} onChange={e => setTestForm(p => ({...p, negative_value: parseFloat(e.target.value)||0}))} style={inp} />
+                              </div>
+                            </div>
+                            {/* Quick presets */}
+                            <div>
+                              <label style={{...lbl, marginBottom: "8px"}}>Quick Duration Presets</label>
+                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                {[[30,"30m"],[45,"45m"],[60,"1h"],[90,"1.5h"],[120,"2h"],[180,"3h"]].map(([min, label]) => (
+                                  <button key={min} onClick={() => setTestForm(p => ({...p, duration_minutes: min}))}
+                                    className="preset-chip"
+                                    style={{ padding: "5px 14px", borderRadius: "20px", border: `1px solid ${testForm.duration_minutes === min ? "rgba(255,215,0,0.6)" : "rgba(255,255,255,0.1)"}`, background: testForm.duration_minutes === min ? "rgba(255,215,0,0.15)" : "transparent", color: testForm.duration_minutes === min ? "#FFD700" : "#666", cursor: "pointer", fontSize: "12px", fontWeight: testForm.duration_minutes === min ? 700 : 400, transition: "all 0.15s" }}>
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            {/* Negative marks presets */}
+                            <div>
+                              <label style={{...lbl, marginBottom: "8px"}}>Negative Marking Presets</label>
+                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                {[[0,"None"],[0.25,"-0.25"],[0.33,"-1/3"],[0.5,"-0.5"],[1,"-1"]].map(([val, label]) => (
+                                  <button key={val} onClick={() => setTestForm(p => ({...p, negative_value: val}))}
+                                    className="preset-chip"
+                                    style={{ padding: "5px 14px", borderRadius: "20px", border: `1px solid ${testForm.negative_value === val ? "rgba(255,100,100,0.6)" : "rgba(255,255,255,0.1)"}`, background: testForm.negative_value === val ? "rgba(255,100,100,0.15)" : "transparent", color: testForm.negative_value === val ? "#ff6b6b" : "#666", cursor: "pointer", fontSize: "12px", fontWeight: testForm.negative_value === val ? 700 : 400, transition: "all 0.15s" }}>
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <label style={{ display: "flex", alignItems: "center", gap: "10px", color: dark ? "#aaa" : "#555", fontSize: "14px", cursor: "pointer" }}>
+                              <input type="checkbox" checked={testForm.is_published} onChange={e => setTestForm(p => ({...p, is_published: e.target.checked}))} />
+                              <span>✅ Published (visible to students)</span>
+                            </label>
+                          </div>
+                        )}
+
+                        {/* ── TAB 2: Sections & Marks ── */}
+                        {activeTab === "sections" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                            {/* Intro banner */}
+                            <div style={{ background: dark ? "rgba(129,140,248,0.08)" : "rgba(129,140,248,0.05)", border: "1px solid rgba(129,140,248,0.2)", borderRadius: "10px", padding: "12px 16px", fontSize: "13px", color: dark ? "#818cf8" : "#5654c4" }}>
+                              💡 Sections let you organise questions into Subject A, B, C... with different marks and negative marking per section. Students will see section tabs in the exam and can jump between subjects easily.
+                            </div>
+
+                            {/* Section list */}
+                            {testForm.sections.length > 0 && (
+                              <div>
+                                {/* Summary row */}
+                                <div style={{ display: "flex", gap: "8px", padding: "10px 14px", background: dark ? "rgba(255,215,0,0.06)" : "rgba(255,215,0,0.08)", borderRadius: "10px", marginBottom: "10px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                                  <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                                    <span style={{ color: "#FFD700", fontWeight: 700, fontSize: "13px" }}>📊 {stats.totalQ} Questions</span>
+                                    <span style={{ color: "#4ade80", fontWeight: 700, fontSize: "13px" }}>✅ {stats.totalM} Marks</span>
+                                    <span style={{ color: "#818cf8", fontWeight: 700, fontSize: "13px" }}>📚 {testForm.sections.length} Sections</span>
+                                    {stats.hasMixedMarks && <span style={{ color: "#fb923c", fontSize: "12px" }}>⚡ Mixed marking scheme</span>}
+                                  </div>
+                                </div>
+
+                                {/* Section rows */}
+                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                                  {testForm.sections.map((sec, idx) => (
+                                    <div key={idx} className="sec-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: dark ? "rgba(255,255,255,0.03)" : "#fafafa", border: `1px solid ${sec.color}33`, borderLeft: `3px solid ${sec.color}`, borderRadius: "10px", transition: "background 0.15s", flexWrap: "wrap" }}>
+                                      {/* Color dot + name */}
+                                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: "160px" }}>
+                                        <div style={{ width: 12, height: 12, borderRadius: "50%", background: sec.color, flexShrink: 0, boxShadow: `0 0 6px ${sec.color}88` }} />
+                                        <div>
+                                          <div style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "13px" }}>{sec.name}</div>
+                                          {sec.subject && <div style={{ color: sec.color, fontSize: "11px", marginTop: "1px" }}>{sec.subject}</div>}
+                                        </div>
+                                      </div>
+                                      {/* Stats chips */}
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", flex: 2 }}>
+                                        <span style={{ background: `${sec.color}18`, color: sec.color, padding: "3px 9px", borderRadius: "12px", fontSize: "11px", fontWeight: 700 }}>{sec.questions_count} Qs</span>
+                                        <span style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80", padding: "3px 9px", borderRadius: "12px", fontSize: "11px" }}>+{sec.marks_per_question}/correct</span>
+                                        <span style={{ background: "rgba(255,100,100,0.1)", color: "#ff6b6b", padding: "3px 9px", borderRadius: "12px", fontSize: "11px" }}>-{sec.negative_marks}/wrong</span>
+                                        <span style={{ background: "rgba(255,255,255,0.05)", color: "#666", padding: "3px 9px", borderRadius: "12px", fontSize: "11px" }}>{sec.questions_count * sec.marks_per_question} total marks</span>
+                                        {(parseInt(sec.time_limit)||0) > 0 && <span style={{ background: "rgba(251,146,60,0.1)", color: "#fb923c", padding: "3px 9px", borderRadius: "12px", fontSize: "11px" }}>⏱ {sec.time_limit}m</span>}
+                                      </div>
+                                      {/* Actions */}
+                                      <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+                                        <button className="sec-action-btn" onClick={() => moveSectionUp(idx)} title="Move up" style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#666", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }} disabled={idx === 0}>↑</button>
+                                        <button className="sec-action-btn" onClick={() => moveSectionDown(idx)} title="Move down" style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#666", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }} disabled={idx === testForm.sections.length - 1}>↓</button>
+                                        <button className="sec-action-btn" onClick={() => duplicateSection(idx)} title="Duplicate" style={{ background: "rgba(129,140,248,0.1)", border: "none", color: "#818cf8", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}>⧉</button>
+                                        <button className="sec-action-btn" onClick={() => { setSectionForm({...sec}); setEditingSectionIdx(idx); setShowSectionForm(true); }} title="Edit" style={{ background: "rgba(255,215,0,0.1)", border: "none", color: "#FFD700", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}>✏️</button>
+                                        <button className="sec-action-btn" onClick={() => removeSection(idx)} title="Delete" style={{ background: "rgba(255,50,50,0.1)", border: "none", color: "#ff6b6b", width: 28, height: 28, borderRadius: "6px", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}>✕</button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {testForm.sections.length === 0 && !showSectionForm && (
+                              <div style={{ textAlign: "center", padding: "32px 20px", background: dark ? "rgba(255,255,255,0.02)" : "#fafafa", borderRadius: "10px", border: dark ? "1px dashed rgba(255,255,255,0.08)" : "1px dashed #ddd" }}>
+                                <div style={{ fontSize: "2rem", marginBottom: "8px" }}>📚</div>
+                                <div style={{ color: dark ? "#555" : "#888", fontSize: "13px", marginBottom: "12px" }}>No sections added yet. This test uses default marking (+{testForm.total_marks > 0 ? (testForm.total_marks / Math.max(1, 20)).toFixed(1) : 1} per Q).</div>
+                                <div style={{ color: "#444", fontSize: "12px" }}>Add sections to define per-subject marks, negative marking, and time limits.</div>
+                              </div>
+                            )}
+
+                            {/* Add Section Button */}
+                            {!showSectionForm && (
+                              <button onClick={() => { setSectionForm({ ...emptySection, name: `Section ${String.fromCharCode(65 + testForm.sections.length)}`, color: SECTION_COLORS[testForm.sections.length % SECTION_COLORS.length] }); setEditingSectionIdx(null); setShowSectionForm(true); }}
+                                style={{ background: "rgba(255,215,0,0.08)", border: "1px dashed rgba(255,215,0,0.35)", color: "#FFD700", padding: "12px", borderRadius: "10px", cursor: "pointer", fontSize: "14px", fontWeight: 700, width: "100%", transition: "all 0.15s" }}>
+                                + Add Section
+                              </button>
+                            )}
+
+                            {/* ── Section Form ── */}
+                            {showSectionForm && (
+                              <div style={{ background: dark ? "rgba(0,0,0,0.3)" : "#f5f5f5", border: `1px solid ${sectionForm.color || "#FFD700"}44`, borderLeft: `3px solid ${sectionForm.color || "#FFD700"}`, borderRadius: "12px", padding: "18px", animation: "fadeIn 0.2s ease" }}>
+                                <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}`}</style>
+                                <div style={{ color: sectionForm.color || "#FFD700", fontWeight: 700, fontSize: "14px", marginBottom: "14px" }}>
+                                  {editingSectionIdx !== null ? "✏️ Edit Section" : "➕ New Section"}
+                                </div>
+
+                                {/* Color picker row */}
+                                <div style={{ marginBottom: "14px" }}>
+                                  <label style={lbl}>Section Color</label>
+                                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                    {SECTION_COLORS.map(c => (
+                                      <button key={c} onClick={() => setSectionForm(p => ({...p, color: c}))}
+                                        style={{ width: 26, height: 26, borderRadius: "50%", background: c, border: sectionForm.color === c ? "3px solid #fff" : "2px solid transparent", cursor: "pointer", transition: "transform 0.15s", transform: sectionForm.color === c ? "scale(1.2)" : "scale(1)" }} />
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="sec-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+                                  <div>
+                                    <label style={lbl}>Section Name *</label>
+                                    <input value={sectionForm.name} onChange={e => setSectionForm(p => ({...p, name: e.target.value}))} style={inp} placeholder="e.g. Section A" />
+                                  </div>
+                                  <div>
+                                    <label style={lbl}>Subject / Topic</label>
+                                    <input value={sectionForm.subject} onChange={e => setSectionForm(p => ({...p, subject: e.target.value}))} list="subjects-list" style={inp} placeholder="e.g. Mathematics" />
+                                    <datalist id="subjects-list">{PRESET_SUBJECTS.map(s => <option key={s} value={s} />)}</datalist>
+                                  </div>
+                                  <div>
+                                    <label style={lbl}>No. of Questions</label>
+                                    <input type="number" min="1" value={sectionForm.questions_count} onChange={e => setSectionForm(p => ({...p, questions_count: parseInt(e.target.value)||1}))} style={inp} />
+                                  </div>
+                                  <div>
+                                    <label style={lbl}>Marks per Correct</label>
+                                    <input type="number" step="0.5" min="0.5" value={sectionForm.marks_per_question} onChange={e => setSectionForm(p => ({...p, marks_per_question: parseFloat(e.target.value)||1}))} style={inp} />
+                                  </div>
+                                  <div>
+                                    <label style={lbl}>Negative per Wrong</label>
+                                    <input type="number" step="0.25" min="0" value={sectionForm.negative_marks} onChange={e => setSectionForm(p => ({...p, negative_marks: parseFloat(e.target.value)||0}))} style={inp} />
+                                  </div>
+                                  <div>
+                                    <label style={lbl}>Time Limit (mins, 0=none)</label>
+                                    <input type="number" min="0" value={sectionForm.time_limit || 0} onChange={e => setSectionForm(p => ({...p, time_limit: parseInt(e.target.value)||0}))} style={inp} />
+                                  </div>
+                                </div>
+                                <div style={{ marginBottom: "12px" }}>
+                                  <label style={lbl}>Section Instructions</label>
+                                  <input value={sectionForm.instructions} onChange={e => setSectionForm(p => ({...p, instructions: e.target.value}))} style={inp} placeholder="e.g. Each question carries 2 marks. No negative marking in this section." />
+                                </div>
+
+                                {/* Live preview */}
+                                <div style={{ background: `${sectionForm.color || "#FFD700"}10`, border: `1px solid ${sectionForm.color || "#FFD700"}30`, borderRadius: "8px", padding: "10px 14px", marginBottom: "12px", fontSize: "12px", color: sectionForm.color || "#FFD700" }}>
+                                  Preview: <strong>{sectionForm.name || "Section"}</strong>{sectionForm.subject && ` — ${sectionForm.subject}`} · {sectionForm.questions_count} questions · +{sectionForm.marks_per_question} per correct · -{sectionForm.negative_marks} per wrong · {sectionForm.questions_count * sectionForm.marks_per_question} total marks{(parseInt(sectionForm.time_limit)||0) > 0 ? ` · ⏱ ${sectionForm.time_limit} min time limit` : ""}
+                                </div>
+
+                                {/* Subject presets */}
+                                <div style={{ marginBottom: "12px" }}>
+                                  <label style={lbl}>Quick Subject Presets</label>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                    {PRESET_SUBJECTS.slice(0, 10).map(s => (
+                                      <button key={s} className="preset-chip"
+                                        onClick={() => setSectionForm(p => ({...p, subject: s}))}
+                                        style={{ padding: "4px 12px", borderRadius: "16px", border: `1px solid ${sectionForm.subject === s ? (sectionForm.color || "#FFD700") + "88" : "rgba(255,255,255,0.1)"}`, background: sectionForm.subject === s ? `${sectionForm.color || "#FFD700"}18` : "transparent", color: sectionForm.subject === s ? (sectionForm.color || "#FFD700") : "#666", cursor: "pointer", fontSize: "11px", transition: "all 0.15s" }}>
+                                        {s}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: "flex", gap: "8px" }}>
+                                  <button onClick={addOrUpdateSection} style={{ background: `linear-gradient(135deg, ${sectionForm.color || "#FFD700"}, ${sectionForm.color || "#FF8C00"})`, border: "none", color: "#000", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>
+                                    {editingSectionIdx !== null ? "Update Section" : "Add Section"}
+                                  </button>
+                                  <button onClick={() => { setShowSectionForm(false); setEditingSectionIdx(null); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#666", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Marks scheme preview table */}
+                            {testForm.sections.length > 0 && (
+                              <div style={{ background: dark ? "rgba(255,255,255,0.02)" : "#fafafa", border: dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #eee", borderRadius: "10px", overflow: "hidden" }}>
+                                <div style={{ padding: "10px 14px", borderBottom: dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #eee", color: dark ? "#aaa" : "#666", fontSize: "11px", fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase" }}>Marking Scheme Summary</div>
+                                <div style={{ overflow: "auto" }}>
+                                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                                    <thead>
+                                      <tr style={{ background: dark ? "rgba(255,255,255,0.04)" : "#f0f0f0" }}>
+                                        {["Section","Subject","Questions","+Marks","-Marks","Total","Time"].map(h => (
+                                          <th key={h} style={{ padding: "8px 12px", textAlign: "left", color: dark ? "#888" : "#666", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {testForm.sections.map((sec, i) => (
+                                        <tr key={i} style={{ borderTop: dark ? "1px solid rgba(255,255,255,0.04)" : "1px solid #f0f0f0" }}>
+                                          <td style={{ padding: "8px 12px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: sec.color, display: "inline-block" }} /><strong style={{ color: dark ? "#fff" : "#111" }}>{sec.name}</strong></span></td>
+                                          <td style={{ padding: "8px 12px", color: "#666" }}>{sec.subject || "—"}</td>
+                                          <td style={{ padding: "8px 12px", color: sec.color, fontWeight: 700 }}>{sec.questions_count}</td>
+                                          <td style={{ padding: "8px 12px", color: "#4ade80", fontWeight: 700 }}>+{sec.marks_per_question}</td>
+                                          <td style={{ padding: "8px 12px", color: "#ff6b6b", fontWeight: 700 }}>-{sec.negative_marks}</td>
+                                          <td style={{ padding: "8px 12px", color: "#FFD700", fontWeight: 700 }}>{sec.questions_count * sec.marks_per_question}</td>
+                                          <td style={{ padding: "8px 12px", color: "#fb923c" }}>{(parseInt(sec.time_limit)||0) > 0 ? `${sec.time_limit}m` : "—"}</td>
+                                        </tr>
+                                      ))}
+                                      <tr style={{ borderTop: dark ? "2px solid rgba(255,215,0,0.2)" : "2px solid rgba(255,215,0,0.3)", background: dark ? "rgba(255,215,0,0.04)" : "rgba(255,215,0,0.05)" }}>
+                                        <td colSpan={2} style={{ padding: "8px 12px", color: "#FFD700", fontWeight: 700 }}>TOTAL</td>
+                                        <td style={{ padding: "8px 12px", color: "#FFD700", fontWeight: 800 }}>{stats.totalQ}</td>
+                                        <td colSpan={2}></td>
+                                        <td style={{ padding: "8px 12px", color: "#4ade80", fontWeight: 800 }}>{stats.totalM}</td>
+                                        <td></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* ── TAB 3: Instructions ── */}
+                        {activeTab === "instructions" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                            <div>
+                              <label style={lbl}>General Instructions</label>
+                              <textarea value={testForm.instructions} onChange={e => setTestForm(p => ({...p, instructions: e.target.value}))}
+                                rows={6} style={{...inp, resize: "vertical", lineHeight: 1.6}}
+                                placeholder={"e.g.\n1. This test contains 100 questions.\n2. Each correct answer carries 1 mark.\n3. 0.25 marks will be deducted for each wrong answer.\n4. Do not refresh the page during the exam."} />
+                            </div>
+                            {/* Quick instruction templates */}
+                            <div>
+                              <label style={{...lbl, marginBottom: "8px"}}>Quick Templates</label>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                {[
+                                  ["SSC/Police Standard", "1. This test contains multiple sections.\n2. Each correct answer carries marks as specified per section.\n3. There is negative marking for wrong answers.\n4. Do not close or refresh the browser during the exam.\n5. Questions marked for review will also be evaluated.\n6. Submit the test before time runs out."],
+                                  ["No Negative Marking", "1. There is NO negative marking in this test.\n2. Attempt all questions.\n3. Each question carries equal marks.\n4. Do not refresh the page during the exam."],
+                                  ["Speed Test", "1. This is a speed test — attempt as many as possible.\n2. Time is limited. Manage wisely.\n3. Negative marking applies.\n4. Your score = Correct - (Wrong × penalty)"]
+                                ].map(([title, text]) => (
+                                  <button key={title} onClick={() => setTestForm(p => ({...p, instructions: text}))}
+                                    style={{ background: dark ? "rgba(255,255,255,0.04)" : "#f5f5f5", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid #e0e0e0", color: dark ? "#aaa" : "#555", padding: "10px 14px", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", transition: "all 0.15s" }}>
+                                    <strong style={{ color: dark ? "#fff" : "#111" }}>{title}</strong><br />
+                                    <span style={{ fontSize: "11px", opacity: 0.7 }}>{text.substring(0, 80)}...</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Save / Cancel buttons — always visible */}
+                        <div style={{ display: "flex", gap: "10px", marginTop: "20px", paddingTop: "16px", borderTop: dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #eee" }}>
+                          <button onClick={() => saveTest(exam.id)} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "9px", cursor: "pointer", fontWeight: 800, fontSize: "14px" }}>
+                            {editTest ? "✅ Update Test" : "✅ Create Test"}
+                          </button>
+                          <button onClick={() => { setShowTestForm(null); setEditTest(null); setShowSectionForm(false); setActiveTab("basic"); }} style={{ background: "transparent", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid #ddd", color: dark ? "#aaa" : "#555", padding: "12px 20px", borderRadius: "9px", cursor: "pointer", fontSize: "14px" }}>Cancel</button>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {(tests[exam.id] || []).length === 0 ? (
-                    <div style={{ color: "#444", fontSize: "13px", padding: "8px 0" }}>No tests yet.</div>
+                  {/* Test List */}
+                  <div style={{ padding: "0 16px 16px" }}>
+                    {(tests[exam.id] || []).length === 0 ? (
+                      <div style={{ color: "#444", fontSize: "13px", padding: "8px 0", textAlign: "center" }}>No tests yet.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        {(tests[exam.id] || []).map(test => {
+                          const secs = parseSections(test);
+                          const tStats = sectionStats(secs);
+                          return (
+                            <div key={test.id} style={{ background: dark ? "rgba(255,255,255,0.03)" : "#fafafa", border: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid #e8e8e8", borderRadius: "10px", overflow: "hidden" }}>
+                              <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "14px", fontWeight: 700 }}>{test.name}</div>
+                                    <span style={{ background: test.is_published ? "rgba(74,222,128,0.12)" : "rgba(255,100,100,0.1)", border: test.is_published ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,100,100,0.3)", color: test.is_published ? "#4ade80" : "#ff6b6b", padding: "1px 8px", borderRadius: "8px", fontSize: "10px", fontWeight: 700 }}>{test.is_published ? "● Live" : "● Draft"}</span>
+                                  </div>
+                                  <div style={{ color: "#666", fontSize: "11px", marginTop: "4px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                    <span style={{ background: "rgba(255,255,255,0.06)", padding: "1px 7px", borderRadius: "8px" }}>{test.test_type}</span>
+                                    <span>⏱ {test.duration_minutes}min</span>
+                                    <span>📊 {secs.length > 0 ? tStats.totalM : test.total_marks} marks</span>
+                                    <span>➖ -{test.negative_value}</span>
+                                    {secs.length > 0 && <span style={{ color: "#818cf8" }}>📚 {secs.length} sections · {tStats.totalQ} Qs</span>}
+                                  </div>
+                                  {secs.length > 0 && (
+                                    <div style={{ display: "flex", gap: "5px", marginTop: "8px", flexWrap: "wrap" }}>
+                                      {secs.map((sec, i) => (
+                                        <div key={i} style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: `${sec.color || SECTION_COLORS[i % SECTION_COLORS.length]}15`, border: `1px solid ${sec.color || SECTION_COLORS[i % SECTION_COLORS.length]}40`, borderRadius: "20px", padding: "2px 9px" }}>
+                                          <div style={{ width: 5, height: 5, borderRadius: "50%", background: sec.color || SECTION_COLORS[i % SECTION_COLORS.length] }} />
+                                          <span style={{ color: sec.color || SECTION_COLORS[i % SECTION_COLORS.length], fontSize: "10px", fontWeight: 700 }}>{sec.name}</span>
+                                          {sec.subject && <span style={{ color: "#555", fontSize: "10px" }}>{sec.subject}</span>}
+                                          <span style={{ color: "#555", fontSize: "10px" }}>{sec.questions_count}Q</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                                  <button onClick={() => openTestForm(exam.id, test)} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.25)", color: "#FFD700", padding: "5px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>Edit</button>
+                                  <button onClick={() => deleteTest(test.id, exam.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.25)", color: "#ff6b6b", padding: "5px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>Del</button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ADMIN USERS COMPONENT - Advanced
+function AdminUsers({ user }) {
+  const dark = useTheme();
+  const [users, setUsers] = useState([]);
+  const [attempts, setAttempts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [expandedUser, setExpandedUser] = useState(null);
+  const [userAttempts, setUserAttempts] = useState({});
+  const [loadingAttempts, setLoadingAttempts] = useState({});
+  const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" };
+
+  useEffect(() => {
+    Promise.all([
+      supabaseRequest("/profiles?select=*&order=created_at.desc&limit=500", { token: user.token }).catch(() => []),
+      supabaseRequest("/attempts?select=user_id,created_at&order=created_at.desc", { token: user.token }).catch(() => []),
+    ]).then(([profileData, attemptData]) => {
+      const attemptCounts = {};
+      (attemptData || []).forEach(a => { attemptCounts[a.user_id] = (attemptCounts[a.user_id] || 0) + 1; });
+      let enriched = (profileData || []).map(u => ({ ...u, attempt_count: attemptCounts[u.id] || 0 }));
+      // Fallback: if profiles table is empty/blocked, build user list from attempts
+      if (enriched.length === 0 && Object.keys(attemptCounts).length > 0) {
+        enriched = Object.keys(attemptCounts).map(uid => ({
+          id: uid, full_name: null, phone: null, state: null,
+          target_exam: null, created_at: null,
+          attempt_count: attemptCounts[uid]
+        }));
+      }
+      setUsers(enriched);
+      setAttempts(attemptData || []);
+      setLoading(false);
+    }).catch(() => { setLoading(false); });
+  }, []);
+
+  const loadUserAttempts = async (uid) => {
+    if (userAttempts[uid]) { setExpandedUser(expandedUser === uid ? null : uid); return; }
+    setLoadingAttempts(p => ({...p, [uid]: true}));
+    setExpandedUser(uid);
+    try {
+      const data = await supabaseRequest(`/attempts?user_id=eq.${uid}&select=*,tests(name)&order=created_at.desc&limit=20`, { token: user.token });
+      setUserAttempts(p => ({...p, [uid]: data || []}));
+    } catch(e) { setUserAttempts(p => ({...p, [uid]: []})); }
+    setLoadingAttempts(p => ({...p, [uid]: false}));
+  };
+
+  const filtered = users.filter(u =>
+    (u.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
+    (u.phone || "").includes(search) ||
+    u.id?.includes(search)
+  );
+
+  return (
+    <div style={{ maxWidth: "1000px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Users & Attempts</h1>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <div style={{ background: "rgba(129,140,248,0.15)", border: "1px solid rgba(129,140,248,0.3)", color: "#818cf8", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>
+            👥 {users.length} Users
+          </div>
+          <div style={{ background: "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>
+            📝 {attempts.length} Total Attempts
+          </div>
+        </div>
+      </div>
+
+      <input placeholder="Search by name, phone or ID..." value={search} onChange={e => setSearch(e.target.value)} style={inputS} />
+
+      {loading ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
+          <div style={{ width: 32, height: 32, border: "3px solid rgba(255,215,0,0.2)", borderTop: "3px solid #FFD700", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {filtered.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "40px" }}>No users found.</div>}
+          {filtered.map(u => (
+            <div key={u.id} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "12px", overflow: "hidden" }}>
+              <div style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg,#818cf8,#6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#fff", fontSize: "16px", flexShrink: 0 }}>
+                    {(u.full_name || "U").charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{u.full_name || <span style={{color:"#555"}}>No name set</span>}</div>
+                    <div style={{ color: "#555", fontSize: "11px", display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
+                      {u.phone && <span>📞 {u.phone}</span>}
+                      {u.state && <span>📍 {u.state}</span>}
+                      {u.target_exam && <span>🎯 {u.target_exam}</span>}
+                      <span style={{ fontFamily: "monospace", color: "#444" }}>{u.id?.substring(0,12)}...</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ color: u.attempt_count > 0 ? "#4ade80" : "#555", fontWeight: 700, fontSize: "18px" }}>{u.attempt_count}</div>
+                    <div style={{ color: "#555", fontSize: "10px" }}>Attempts</div>
+                  </div>
+                  <div style={{ color: "#444", fontSize: "11px" }}>
+                    {u.created_at ? new Date(u.created_at).toLocaleDateString("en-IN") : ""}
+                  </div>
+                  <button onClick={() => loadUserAttempts(u.id)} style={{ background: u.attempt_count > 0 ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.05)", border: u.attempt_count > 0 ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,255,255,0.1)", color: u.attempt_count > 0 ? "#4ade80" : "#555", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>
+                    {expandedUser === u.id ? "▲ Hide" : `▼ View Attempts`}
+                  </button>
+                </div>
+              </div>
+
+              {expandedUser === u.id && (
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "12px 18px", background: "rgba(0,0,0,0.15)" }}>
+                  {loadingAttempts[u.id] ? (
+                    <div style={{ color: "#666", padding: "12px", fontSize: "13px" }}>Loading attempts...</div>
+                  ) : (userAttempts[u.id] || []).length === 0 ? (
+                    <div style={{ color: "#555", fontSize: "13px", padding: "12px" }}>No attempts recorded for this user.</div>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      {(tests[exam.id] || []).map(test => (
-                        <div key={test.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                          <div>
-                            <div style={{ color: "#ddd", fontSize: "13px", fontWeight: 600 }}>{test.name}</div>
-                            <div style={{ color: "#555", fontSize: "11px" }}>{test.test_type} • {test.duration_minutes}min • {test.total_marks}marks • {test.is_published ? <span style={{ color: "#4ade80" }}>Published</span> : <span style={{ color: "#ff6b6b" }}>Draft</span>}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <div style={{ color: "#aaa", fontSize: "11px", fontWeight: 700, letterSpacing: "1px", marginBottom: "4px" }}>ATTEMPT HISTORY</div>
+                      {(userAttempts[u.id] || []).map((a, i) => {
+                        const pct = a.total_marks > 0 ? Math.round((a.score / a.total_marks) * 100) : 0;
+                        return (
+                          <div key={a.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                            <div>
+                              <div style={{ color: dark ? "#ddd" : "#222", fontSize: "13px", fontWeight: 600 }}>{a.tests?.name || "Unknown Test"}</div>
+                              <div style={{ color: "#555", fontSize: "11px" }}>{new Date(a.created_at).toLocaleString("en-IN")}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                              <div style={{ textAlign: "center" }}>
+                                <div style={{ color: "#4ade80", fontSize: "12px" }}>✓ {a.correct_count || 0}</div>
+                                <div style={{ color: "#555", fontSize: "10px" }}>Correct</div>
+                              </div>
+                              <div style={{ textAlign: "center" }}>
+                                <div style={{ color: "#ff6b6b", fontSize: "12px" }}>✗ {a.wrong_count || 0}</div>
+                                <div style={{ color: "#555", fontSize: "10px" }}>Wrong</div>
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ color: pct >= 60 ? "#4ade80" : pct >= 40 ? "#fb923c" : "#ff6b6b", fontWeight: 700, fontSize: "16px" }}>{pct}%</div>
+                                <div style={{ color: "#555", fontSize: "11px" }}>{a.score}/{a.total_marks}</div>
+                              </div>
+                              <div style={{ background: a.status === "completed" ? "rgba(74,222,128,0.15)" : "rgba(251,146,60,0.15)", border: a.status === "completed" ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(251,146,60,0.3)", color: a.status === "completed" ? "#4ade80" : "#fb923c", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
+                                {a.status || "completed"}
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => { setEditTest(test); setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published }); setShowTestForm(exam.id); }} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.2)", color: dark ? "#FFD700" : "#92600A", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Edit</button>
-                            <button onClick={() => deleteTest(test.id, exam.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.2)", color: "#ff6b6b", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "12px" }}>Del</button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2272,417 +3409,691 @@ function AdminExams({ user }) {
   );
 }
 
-// ADMIN USERS COMPONENT
-function AdminUsers({ user }) {
-  const dark = useTheme();
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    // profiles table is a public mirror of auth.users created by a Supabase trigger
-    supabaseRequest("/profiles?select=id,email,full_name,created_at&order=created_at.desc&limit=200", { token: user.token })
-      .then(data => {
-        setUsers(data || []);
-        setLoading(false);
-      })
-      .catch(() => {
-        // Fallback: try a custom auth_users view if profiles doesn't exist
-        supabaseRequest("/auth_users?select=id,email,created_at&order=created_at.desc&limit=200", { token: user.token })
-          .then(data => { setUsers(data || []); setLoading(false); })
-          .catch(() => { setUsers([]); setLoading(false); });
-      });
-  }, []);
-
-  const filtered = users.filter(u => u.email?.toLowerCase().includes(search.toLowerCase()) || u.id?.includes(search));
-
-  return (
-    <div style={{ maxWidth: "900px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
-        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Users</h1>
-        <div style={{ color: "#666", fontSize: "13px" }}>Total: {users.length}</div>
-      </div>
-
-      <input
-        placeholder="Search by email or ID..."
-        value={search} onChange={e => setSearch(e.target.value)}
-        style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" }}
-      />
-
-      {loading ? <div style={{ color: "#666" }}>Loading users...</div> : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {filtered.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "40px" }}>No users found.</div>}
-          {filtered.map(u => (
-            <div key={u.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "10px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-              <div>
-                <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{u.email || "No email"}</div>
-                <div style={{ color: "#555", fontSize: "11px", fontFamily: "monospace" }}>{u.id}</div>
-              </div>
-              <div style={{ color: "#555", fontSize: "12px" }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : ""}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ==========================================================
-// ADMIN QUESTIONS COMPONENT - SMART UPLOADER & MANAGER
+// ADMIN QUESTIONS — PRO EDITION
 // ==========================================================
 function AdminQuestions({ user }) {
   const dark = useTheme();
   const [availableTests, setAvailableTests] = useState([]);
   const [selectedTestId, setSelectedTestId] = useState("");
-  const [mode, setMode] = useState("manual"); // "manual" | "file" | "manage"
-  
-  // Smart File State
-  const [fileData, setFileData] = useState([]);
-  const [fileError, setFileError] = useState("");
+  const [mode, setMode] = useState("manual"); // "manual"|"file"|"manage"|"ai"
+
+  // Manual form state
+  const emptyQ = { question_text: "", option_a: "", option_b: "", option_c: "", option_d: "", correct_answer: "a", marks: 1, negative_marks: 0.25, subject: "General", explanation: "", image_url: "", option_a_image: "", option_b_image: "", option_c_image: "", option_d_image: "" };
+  const [qForm, setQForm] = useState(emptyQ);
+  const [qImageFile, setQImageFile] = useState(null);
+  const [optImageFiles, setOptImageFiles] = useState({ a: null, b: null, c: null, d: null });
+  const [editingQId, setEditingQId] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // Manual & Edit State
-  const emptyQ = { question_text: "", option_a: "", option_b: "", option_c: "", option_d: "", correct_answer: "a", marks: 1, negative_marks: 0.25, subject: "General", explanation: "", image_url: "" };
-  const [qForm, setQForm] = useState(emptyQ);
-  const [imageFile, setImageFile] = useState(null);
-  const [editingQId, setEditingQId] = useState(null); // Tracks if we are editing an existing question
-
-  // Manage State
+  // Manage state
   const [existingQs, setExistingQs] = useState([]);
   const [loadingQs, setLoadingQs] = useState(false);
+  const [previewQ, setPreviewQ] = useState(null);
+  const [bulkSelect, setBulkSelect] = useState([]);
+
+  // File upload state
+  const [fileData, setFileData] = useState([]);
+  const [fileError, setFileError] = useState("");
+  const [filePreviewOpen, setFilePreviewOpen] = useState(false);
+
+  // AI paste state
+  const [aiRawText, setAiRawText] = useState("");
+  const [aiParsed, setAiParsed] = useState([]);
+  const [aiError, setAiError] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
+  // Filter state for manage
+  const [manageSearch, setManageSearch] = useState("");
+  const [manageSubjectFilter, setManageSubjectFilter] = useState("All");
+
+  const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
 
   useEffect(() => {
     supabaseRequest("/tests?select=id,name,exams(name)&order=created_at.desc", { token: user.token })
       .then(data => setAvailableTests(data || [])).catch(() => {});
   }, [user]);
 
-  // Fetch questions when switching to manage mode
-  useEffect(() => {
-    if (mode === "manage" && selectedTestId) {
-      setLoadingQs(true);
-      supabaseRequest(`/questions?test_id=eq.${selectedTestId}&order=created_at.asc`, { token: user.token })
-        .then(data => { setExistingQs(data || []); setLoadingQs(false); })
-        .catch(() => setLoadingQs(false));
-    }
-  }, [mode, selectedTestId, user.token]);
+  const loadQuestions = useCallback(() => {
+    if (!selectedTestId) return;
+    setLoadingQs(true);
+    supabaseRequest(`/questions?test_id=eq.${selectedTestId}&order=created_at.asc`, { token: user.token })
+      .then(data => { setExistingQs(data || []); setLoadingQs(false); })
+      .catch(() => setLoadingQs(false));
+  }, [selectedTestId, user.token]);
 
-  // --- QUESTION MANAGER LOGIC ---
-  const handleDeleteQ = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this question?")) return;
-    try {
-      await supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token });
-      setExistingQs(prev => prev.filter(q => q.id !== id));
-      setMsg("✅ Question deleted successfully.");
-    } catch(e) { setMsg("❌ " + e.message); }
+  useEffect(() => {
+    if (mode === "manage" && selectedTestId) loadQuestions();
+  }, [mode, selectedTestId, loadQuestions]);
+
+  // --- UPLOAD IMAGE HELPER ---
+  const uploadImg = async (file, token) => {
+    if (!file) return null;
+    const ext = file.name.split('.').pop();
+    const name = `${Date.now()}_${Math.random().toString(36).substring(2,8)}.${ext}`;
+    return supabaseUpload("question_images", name, file, token);
   };
 
+  // --- MANUAL SUBMIT ---
+  const handleManualSubmit = async () => {
+    if (!selectedTestId && !editingQId) { setMsg("❌ Select a test first."); return; }
+    if (!qForm.question_text.trim()) { setMsg("❌ Question text is required."); return; }
+    if (!qForm.option_a.trim() || !qForm.option_b.trim()) { setMsg("❌ At least options A and B are required."); return; }
+    setUploading(true); setMsg("");
+    try {
+      let imgUrl = qForm.image_url;
+      if (qImageFile) imgUrl = await uploadImg(qImageFile, user.token);
+
+      let optImgUrls = { a: qForm.option_a_image, b: qForm.option_b_image, c: qForm.option_c_image, d: qForm.option_d_image };
+      for (const opt of ["a","b","c","d"]) {
+        if (optImageFiles[opt]) optImgUrls[opt] = await uploadImg(optImageFiles[opt], user.token);
+      }
+
+      const body = {
+        question_text: qForm.question_text,
+        option_a: qForm.option_a, option_b: qForm.option_b,
+        option_c: qForm.option_c, option_d: qForm.option_d,
+        correct_answer: qForm.correct_answer,
+        marks: parseFloat(qForm.marks) || 1,
+        negative_marks: parseFloat(qForm.negative_marks) || 0.25,
+        subject: qForm.subject || "General",
+        explanation: qForm.explanation || null,
+        image_url: imgUrl || null,
+        difficulty: qForm.difficulty || "medium",
+      };
+
+      if (editingQId) {
+        await supabaseRequest(`/questions?id=eq.${editingQId}`, { method: "PATCH", body, token: user.token, prefer: "return=minimal" });
+        setMsg("✅ Question updated!");
+        setEditingQId(null);
+        loadQuestions();
+        setMode("manage");
+      } else {
+        await supabaseRequest("/questions", { method: "POST", body: { ...body, test_id: selectedTestId }, token: user.token, prefer: "return=minimal" });
+        setMsg("✅ Question saved! Add another or switch to Manage to view.");
+      }
+      setQForm({ ...emptyQ, subject: qForm.subject });
+      setQImageFile(null); setOptImageFiles({ a:null,b:null,c:null,d:null });
+      ["q-img","opt-img-a","opt-img-b","opt-img-c","opt-img-d"].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
+    } catch(e) { setMsg("❌ " + e.message); } finally { setUploading(false); }
+  };
+
+  // --- EDIT QUESTION ---
   const handleEditQ = (q) => {
     setQForm({
-      question_text: q.question_text, option_a: q.option_a, option_b: q.option_b, 
-      option_c: q.option_c, option_d: q.option_d, correct_answer: q.correct_answer, 
-      marks: q.marks, negative_marks: q.negative_marks, subject: q.subject || "General", 
-      explanation: q.explanation || "", image_url: q.image_url || ""
+      question_text: q.question_text, option_a: q.option_a, option_b: q.option_b,
+      option_c: q.option_c || "", option_d: q.option_d || "", correct_answer: q.correct_answer,
+      marks: q.marks, negative_marks: q.negative_marks, subject: q.subject || "General",
+      explanation: q.explanation || "", image_url: q.image_url || "",
+      option_a_image: "", option_b_image: "", option_c_image: "", option_d_image: "",
+      difficulty: q.difficulty || "medium",
     });
     setEditingQId(q.id);
     setMode("manual");
-    setMsg("✏️ Editing question. Make your changes and click Save.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setMsg("✏️ Editing question — make changes and click Update.");
   };
 
-  // --- SMART TXT PARSER ---
-  const parseTXT = (text) => {
-    const blocks = text.split(/\n\s*\n/).filter(b => b.trim());
-    const rows = []; const errors = [];
-    blocks.forEach((block, i) => {
-      const lines = block.split('\n').map(l => l.trim()).filter(l => l);
-      const q = {};
-      lines.forEach(line => {
-        if (line.match(/^Q[:.]/i)) q.question_text = line.substring(2).trim();
-        else if (line.match(/^A[\)\.]/i)) q.option_a = line.substring(2).trim();
-        else if (line.match(/^B[\)\.]/i)) q.option_b = line.substring(2).trim();
-        else if (line.match(/^C[\)\.]/i)) q.option_c = line.substring(2).trim();
-        else if (line.match(/^D[\)\.]/i)) q.option_d = line.substring(2).trim();
-        else if (line.match(/^Ans[:.]/i)) q.correct_answer = line.substring(4).trim().toLowerCase();
-        else if (line.match(/^Exp[:.]/i)) q.explanation = line.substring(4).trim();
-        else if (line.match(/^Img[:.]/i)) q.image_url = line.substring(4).trim();
-      });
-      if (!q.question_text || !q.option_a || !q.option_b || !q.correct_answer) { errors.push(`Block ${i+1}: Missing required fields`); return; }
-      if (!["a","b","c","d"].includes(q.correct_answer)) { errors.push(`Block ${i+1}: Invalid answer`); return; }
-      rows.push({...q, marks: 1, negative_marks: 0.25, subject: "General"});
-    });
-    if (errors.length) setFileError(errors.slice(0,3).join(" | ")); else setFileError("");
-    return rows;
+  // --- DELETE QUESTION ---
+  const handleDeleteQ = async (id) => {
+    if (!window.confirm("Delete this question permanently?")) return;
+    try {
+      await supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token });
+      setExistingQs(prev => prev.filter(q => q.id !== id));
+      setBulkSelect(prev => prev.filter(x => x !== id));
+      setMsg("✅ Question deleted.");
+    } catch(e) { setMsg("❌ " + e.message); }
   };
 
-  // --- SMART CSV PARSER ---
+  // --- BULK DELETE ---
+  const handleBulkDelete = async () => {
+    if (!bulkSelect.length) return;
+    if (!window.confirm(`Delete ${bulkSelect.length} selected questions?`)) return;
+    try {
+      await Promise.all(bulkSelect.map(id => supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token })));
+      setExistingQs(prev => prev.filter(q => !bulkSelect.includes(q.id)));
+      setBulkSelect([]);
+      setMsg(`✅ Deleted ${bulkSelect.length} questions.`);
+    } catch(e) { setMsg("❌ " + e.message); }
+  };
+
+  // --- DUPLICATE QUESTION ---
+  const handleDuplicateQ = async (q) => {
+    if (!selectedTestId) return;
+    const body = {
+      test_id: selectedTestId, question_text: q.question_text + " (copy)",
+      option_a: q.option_a, option_b: q.option_b, option_c: q.option_c, option_d: q.option_d,
+      correct_answer: q.correct_answer, marks: q.marks, negative_marks: q.negative_marks,
+      subject: q.subject, explanation: q.explanation, image_url: q.image_url, difficulty: q.difficulty,
+    };
+    try {
+      await supabaseRequest("/questions", { method: "POST", body, token: user.token, prefer: "return=minimal" });
+      setMsg("✅ Question duplicated."); loadQuestions();
+    } catch(e) { setMsg("❌ " + e.message); }
+  };
+
+  // --- CSV/TXT PARSER ---
   const parseCSVLine = (line) => {
-    const result = []; let current = ""; let inQuotes = false;
+    const result = []; let cur = ""; let inQ = false;
     for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { if (inQuotes && line[i+1] === '"') { current += '"'; i++; } else { inQuotes = !inQuotes; } } 
-      else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ""; } 
-      else { current += ch; }
+      const c = line[i];
+      if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+      else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ""; }
+      else cur += c;
     }
-    result.push(current.trim()); return result;
+    result.push(cur.trim()); return result;
   };
 
   const parseCSV = (text) => {
     const lines = text.trim().split("\n").filter(l => l.trim());
-    if (lines.length < 2) { setFileError("CSV must have a header row"); return []; }
+    if (lines.length < 2) return { rows: [], errors: ["CSV must have a header row"] };
     const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/"/g,"").trim());
     const rows = []; const errors = [];
     lines.slice(1).forEach((line, i) => {
       if (!line.trim()) return;
       const vals = parseCSVLine(line); const row = {};
-      headers.forEach((h, idx) => { row[h] = (vals[idx] || "").replace(/^"|"$/g, "").trim(); });
-      if (!row.question_text) { errors.push(`Row ${i+2}: Empty question`); return; }
-      rows.push(row);
+      headers.forEach((h, idx) => { row[h] = (vals[idx] || "").replace(/^"|"$/g,"").trim(); });
+      if (!row.question_text) { errors.push(`Row ${i+2}: Missing question_text`); return; }
+      if (!row.option_a || !row.option_b) { errors.push(`Row ${i+2}: Need at least option_a and option_b`); return; }
+      if (!["a","b","c","d"].includes((row.correct_answer||"").toLowerCase())) { errors.push(`Row ${i+2}: correct_answer must be a/b/c/d`); return; }
+      rows.push({ ...row, marks: parseFloat(row.marks)||1, negative_marks: parseFloat(row.negative_marks)||0.25, subject: row.subject||"General", correct_answer: row.correct_answer.toLowerCase() });
     });
-    if (errors.length) setFileError(errors.slice(0,3).join(" | ")); else setFileError("");
-    return rows;
+    return { rows, errors };
+  };
+
+  const parseTXT = (text) => {
+    const blocks = text.split(/\n\s*\n/).filter(b => b.trim());
+    const rows = []; const errors = [];
+    blocks.forEach((block, i) => {
+      const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+      const q = { marks: 1, negative_marks: 0.25, subject: "General" };
+      lines.forEach(line => {
+        if (/^Q\d*[:.]/i.test(line)) q.question_text = line.replace(/^Q\d*[:.]\s*/i,"").trim();
+        else if (/^[Aa][).\s]/i.test(line)) q.option_a = line.replace(/^[Aa][).\s]/,"").trim();
+        else if (/^[Bb][).\s]/i.test(line)) q.option_b = line.replace(/^[Bb][).\s]/,"").trim();
+        else if (/^[Cc][).\s]/i.test(line)) q.option_c = line.replace(/^[Cc][).\s]/,"").trim();
+        else if (/^[Dd][).\s]/i.test(line)) q.option_d = line.replace(/^[Dd][).\s]/,"").trim();
+        else if (/^Ans[:.]/i.test(line)) q.correct_answer = line.replace(/^Ans[:.]\s*/i,"").trim().toLowerCase();
+        else if (/^Exp[:.]/i.test(line)) q.explanation = line.replace(/^Exp[:.]\s*/i,"").trim();
+        else if (/^Subj[:.]/i.test(line)) q.subject = line.replace(/^Subj[:.]\s*/i,"").trim();
+        else if (/^Marks[:.]/i.test(line)) q.marks = parseFloat(line.replace(/^Marks[:.]\s*/i,""));
+        else if (/^Neg[:.]/i.test(line)) q.negative_marks = parseFloat(line.replace(/^Neg[:.]\s*/i,""));
+        else if (/^Img[:.]/i.test(line)) q.image_url = line.replace(/^Img[:.]\s*/i,"").trim();
+      });
+      if (!q.question_text || !q.option_a || !q.option_b || !q.correct_answer) { errors.push(`Block ${i+1}: Missing required fields (Q/A/B/Ans)`); return; }
+      if (!["a","b","c","d"].includes(q.correct_answer)) { errors.push(`Block ${i+1}: Ans must be a/b/c/d`); return; }
+      rows.push(q);
+    });
+    return { rows, errors };
   };
 
   const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const file = e.target.files[0]; if (!file) return;
     setFileError(""); setFileData([]);
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = evt.target.result;
-      let parsed = [];
-      if (file.name.endsWith('.csv')) parsed = parseCSV(text);
-      else if (file.name.endsWith('.txt')) parsed = parseTXT(text);
-      else setFileError("Unsupported file type. Use .csv or .txt");
-      setFileData(parsed);
+      let result;
+      if (file.name.endsWith('.csv')) result = parseCSV(text);
+      else if (file.name.endsWith('.txt')) result = parseTXT(text);
+      else { setFileError("Unsupported file. Use .csv or .txt"); return; }
+      if (result.errors.length) setFileError(result.errors.slice(0,5).join(" | "));
+      setFileData(result.rows);
+      if (result.rows.length > 0) setFilePreviewOpen(true);
     };
     reader.readAsText(file);
   };
 
-  const submitBulk = async () => {
-    if (!fileData.length || fileError) return;
-    if (!selectedTestId) { setMsg("❌ Please select a target test."); return; }
+  const submitBulk = async (rows) => {
+    if (!rows.length) return;
+    if (!selectedTestId) { setMsg("❌ Select a test first."); return; }
     setUploading(true); setMsg("");
     try {
-      const questions = fileData.map(r => ({
-        ...r, test_id: selectedTestId, correct_answer: r.correct_answer?.toLowerCase() || 'a',
-        marks: parseFloat(r.marks) || 1, negative_marks: parseFloat(r.negative_marks) || 0,
-        subject: r.subject || "General", image_url: r.image_url || null
-      }));
+      const questions = rows.map(r => ({ ...r, test_id: selectedTestId, image_url: r.image_url || null }));
       await supabaseRequest("/questions", { method: "POST", body: questions, token: user.token, prefer: "return=minimal" });
-      setMsg(`✅ ${questions.length} smart questions uploaded!`);
-      setFileData([]); document.getElementById("smart-file-upload").value = "";
-    } catch(e) { setMsg(`❌ Upload failed: ${e.message}`); } finally { setUploading(false); }
+      setMsg(`✅ ${questions.length} questions uploaded!`);
+      setFileData([]); setFilePreviewOpen(false);
+      const el = document.getElementById("bulk-file-upload"); if (el) el.value = "";
+    } catch(e) { setMsg(`❌ ${e.message}`); } finally { setUploading(false); }
   };
 
-  // --- MANUAL SUBMIT (Handles Create AND Update) ---
-  const handleManualSubmit = async () => {
-    if (!selectedTestId && !editingQId) { setMsg("❌ Please select a test first."); return; }
-    if (!qForm.question_text || !qForm.option_a || !qForm.option_b) { setMsg("❌ Question and at least 2 options are required."); return; }
-    setUploading(true); setMsg("");
-    
+  // --- AI SMART PASTE ---
+  const handleAIParse = async () => {
+    if (!aiRawText.trim()) { setAiError("Paste some text first."); return; }
+    setAiLoading(true); setAiError(""); setAiParsed([]);
     try {
-      let finalImageUrl = qForm.image_url; 
-      
-      if (imageFile) {
-        const fileExt = imageFile.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-        finalImageUrl = await supabaseUpload("question_images", fileName, imageFile, user.token);
-      }
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 4000,
+          messages: [{
+            role: "user",
+            content: `You are a question parser for a test platform. Parse the following text into structured MCQ questions. Extract every question you find.
 
-      const body = { ...qForm, image_url: finalImageUrl };
+Return ONLY a valid JSON array, no markdown, no explanation. Each object must have:
+- question_text (string)
+- option_a (string)
+- option_b (string)
+- option_c (string, empty string if not present)
+- option_d (string, empty string if not present)
+- correct_answer (string: "a", "b", "c", or "d")
+- explanation (string, empty string if not present)
+- subject (string, guess from context or use "General")
+- marks (number, default 1)
+- negative_marks (number, default 0.25)
 
-      if (editingQId) {
-        // UPDATE Existing Question
-        await supabaseRequest(`/questions?id=eq.${editingQId}`, {
-          method: "PATCH", body, token: user.token, prefer: "return=minimal"
-        });
-        setMsg("✅ Question updated successfully!");
-        setEditingQId(null); // Clear edit mode
-      } else {
-        // CREATE New Question
-        await supabaseRequest("/questions", {
-          method: "POST", body: { ...body, test_id: selectedTestId }, token: user.token, prefer: "return=minimal"
-        });
-        setMsg("✅ Smart Question added successfully!");
-      }
-      
-      setQForm({ ...emptyQ, subject: qForm.subject }); 
-      setImageFile(null);
-      const fileInput = document.getElementById("q-image-upload");
-      if(fileInput) fileInput.value = ""; 
-    } catch(e) { 
-      setMsg(`❌ Failed: ${e.message}`); 
-    } finally { 
-      setUploading(false); 
-    }
+TEXT TO PARSE:
+${aiRawText}`
+          }]
+        })
+      });
+      const data = await response.json();
+      const raw = data.content?.[0]?.text || "";
+      const clean = raw.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(clean);
+      if (!Array.isArray(parsed)) throw new Error("Not an array");
+      setAiParsed(parsed);
+    } catch(e) {
+      setAiError("Parse failed. Check your text format or try again. " + e.message);
+    } finally { setAiLoading(false); }
   };
 
-  const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" };
+  // Filter for manage
+  const allSubjects = ["All", ...new Set(existingQs.map(q => q.subject || "General"))];
+  const filteredQs = existingQs.filter(q => {
+    const matchSubject = manageSubjectFilter === "All" || q.subject === manageSubjectFilter;
+    const matchSearch = !manageSearch || q.question_text?.toLowerCase().includes(manageSearch.toLowerCase());
+    return matchSubject && matchSearch;
+  });
+
+  const TABS = [
+    { key: "manual", label: "✍️ Manual Entry" },
+    { key: "file", label: "📁 File Upload" },
+    { key: "ai", label: "🤖 AI Smart Paste" },
+    { key: "manage", label: `📋 Manage (${existingQs.length})` },
+  ];
 
   return (
-    <div style={{ maxWidth: "800px" }}>
-      <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "8px" }}>Manage Questions</h1>
-      
-      <div style={{ background: dark ? "rgba(255,215,0,0.05)" : "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", padding: "16px", borderRadius: "12px", marginBottom: "20px" }}>
-        <label style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "13px", display: "block", marginBottom: "8px", fontWeight: 700 }}>1. Select Target Test *</label>
-        <select value={selectedTestId} onChange={e => { setSelectedTestId(e.target.value); setMsg(""); }} style={inputS}>
-          <option value="">— Choose a test to view or add questions —</option>
+    <div style={{ maxWidth: "900px" }}>
+      <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "6px" }}>Question Manager</h1>
+      <p style={{ color: "#666", fontSize: "13px", marginBottom: "20px" }}>Add questions manually, via file, or paste raw text and let AI parse it automatically.</p>
+
+      {/* Test Selector */}
+      <div style={{ background: dark ? "rgba(255,215,0,0.05)" : "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.25)", padding: "16px", borderRadius: "12px", marginBottom: "20px" }}>
+        <label style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "12px", fontWeight: 700, display: "block", marginBottom: "8px" }}>TARGET TEST *</label>
+        <select value={selectedTestId} onChange={e => { setSelectedTestId(e.target.value); setMsg(""); setExistingQs([]); setBulkSelect([]); }} style={inputS}>
+          <option value="">— Select a test —</option>
           {availableTests.map(t => <option key={t.id} value={t.id}>{t.exams?.name ? `${t.exams.name} › ` : ""}{t.name}</option>)}
         </select>
       </div>
 
-      <div style={{ display: "flex", gap: "8px", marginBottom: "20px", borderBottom: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)", paddingBottom: "12px", overflowX: "auto" }}>
-        <button onClick={() => {setMode("manual"); setMsg("");}} style={{ background: mode === "manual" ? "rgba(255,255,255,0.1)" : "transparent", border: "none", color: mode === "manual" ? (dark?"#fff":"#111") : "#888", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: mode==="manual"?700:400, whiteSpace: "nowrap" }}>✍️ Smart Entry</button>
-        <button onClick={() => {setMode("file"); setMsg("");}} style={{ background: mode === "file" ? "rgba(255,255,255,0.1)" : "transparent", border: "none", color: mode === "file" ? (dark?"#fff":"#111") : "#888", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: mode==="file"?700:400, whiteSpace: "nowrap" }}>📁 Upload File</button>
-        <button onClick={() => {setMode("manage"); setMsg(""); setEditingQId(null);}} style={{ background: mode === "manage" ? "rgba(74,222,128,0.15)" : "transparent", border: "none", color: mode === "manage" ? "#4ade80" : "#888", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: mode==="manage"?700:400, whiteSpace: "nowrap" }}>📋 Manage Uploaded</button>
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "20px", overflowX: "auto", background: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", padding: "4px", borderRadius: "10px" }}>
+        {TABS.map(tab => (
+          <button key={tab.key} onClick={() => { setMode(tab.key); setMsg(""); if(tab.key!=="manual") setEditingQId(null); }} style={{
+            flex: "0 0 auto", padding: "9px 16px", borderRadius: "7px", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: mode===tab.key ? 700 : 400, whiteSpace: "nowrap",
+            background: mode===tab.key ? (tab.key==="ai" ? "rgba(129,140,248,0.2)" : "rgba(255,215,0,0.15)") : "transparent",
+            color: mode===tab.key ? (tab.key==="ai" ? "#818cf8" : (dark?"#FFD700":"#92600A")) : (dark?"#666":"#888"),
+          }}>{tab.label}</button>
+        ))}
       </div>
 
-      {msg && <div style={{ color: msg.startsWith("✅") ? "#4ade80" : msg.startsWith("✏️") ? "#FFD700" : "#ff6b6b", marginBottom: "16px", fontSize: "14px", padding: "10px", background: "rgba(0,0,0,0.2)", borderRadius: "8px" }}>{msg}</div>}
-
-      {/* MANAGE MODE - List existing questions */}
-      {mode === "manage" && (
-        <div style={{ animation: "fadeIn 0.3s ease" }}>
-          {!selectedTestId ? (
-            <div style={{ padding: "30px", textAlign: "center", color: "#666", background: "rgba(0,0,0,0.2)", borderRadius: "10px" }}>
-              Please select a test from the dropdown above to view its questions.
-            </div>
-          ) : loadingQs ? (
-            <div style={{ color: "#888", padding: "20px" }}>Loading questions...</div>
-          ) : existingQs.length === 0 ? (
-            <div style={{ padding: "30px", textAlign: "center", color: "#666", background: "rgba(0,0,0,0.2)", borderRadius: "10px" }}>
-              No questions have been uploaded for this test yet.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", color: "#aaa", fontSize: "12px", marginBottom: "4px" }}>
-                <span>Questions in this test:</span>
-                <span style={{ color: "#4ade80", fontWeight: 700, fontSize: "14px" }}>Total: {existingQs.length}</span>
-              </div>
-              
-              {existingQs.map((q, i) => (
-                <div key={q.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", padding: "14px", borderRadius: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "14px", lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      <strong style={{ color: "#FFD700", marginRight: "6px" }}>Q{i+1}.</strong> {q.question_text}
-                    </div>
-                    <div style={{ color: "#888", fontSize: "11px", marginTop: "6px", display: "flex", gap: "12px" }}>
-                      <span style={{ color: "#4ade80" }}>Ans: {q.correct_answer?.toUpperCase()}</span>
-                      <span>Marks: {q.marks} / -{q.negative_marks}</span>
-                      <span>{q.subject}</span>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => handleEditQ(q)} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>Edit</button>
-                    <button onClick={() => handleDeleteQ(q.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>Delete</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Message */}
+      {msg && (
+        <div style={{ color: msg.startsWith("✅") ? "#4ade80" : msg.startsWith("✏️") ? "#FFD700" : "#ff6b6b", marginBottom: "16px", fontSize: "13px", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{msg}</span>
+          <button onClick={() => setMsg("")} style={{ background: "transparent", border: "none", color: "#555", cursor: "pointer", fontSize: "16px" }}>×</button>
         </div>
       )}
 
-      {/* SMART MANUAL / EDIT MODE */}
+      {/* ─── MANUAL MODE ─── */}
       {mode === "manual" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px", animation: "fadeIn 0.3s ease" }}>
-          
           {editingQId && (
-            <div style={{ background: "rgba(255,215,0,0.1)", border: "1px solid #FFD700", color: "#FFD700", padding: "10px 14px", borderRadius: "8px", fontSize: "13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <strong>Currently Editing a Question</strong>
-              <button onClick={() => { setEditingQId(null); setQForm({ ...emptyQ, subject: qForm.subject }); setMsg("Edit cancelled."); }} style={{ background: "transparent", border: "1px solid rgba(255,215,0,0.5)", color: "#FFD700", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px" }}>Cancel Edit</button>
+            <div style={{ background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.4)", color: "#FFD700", padding: "10px 14px", borderRadius: "8px", fontSize: "13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>✏️ <strong>Edit Mode</strong> — Modifying an existing question</span>
+              <button onClick={() => { setEditingQId(null); setQForm(emptyQ); setMsg(""); }} style={{ background: "transparent", border: "1px solid rgba(255,215,0,0.4)", color: "#FFD700", padding: "4px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Cancel Edit</button>
             </div>
           )}
 
-          <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "8px", fontSize: "12px", color: "#aaa", border: "1px dashed rgba(255,255,255,0.1)" }}>
-            💡 <strong>Pro Tip:</strong> You can type mathematical formulas using LaTeX format! Just wrap your math in double dollar signs: <code>$$x^2 + y^2$$</code>
+          {/* Question Text */}
+          <div>
+            <label style={{ color: "#aaa", fontSize: "12px", display: "block", marginBottom: "6px" }}>QUESTION TEXT *</label>
+            <textarea value={qForm.question_text} onChange={e => setQForm(p => ({...p, question_text: e.target.value}))} style={{...inputS, minHeight: "90px", resize: "vertical"}} placeholder="Type the question here. For math: use $$formula$$ syntax." />
           </div>
-          
-          <div><label style={{color:"#aaa", fontSize:"12px"}}>Question Text *</label><textarea value={qForm.question_text} onChange={e=>setQForm({...qForm, question_text:e.target.value})} style={{...inputS, height:"80px", resize:"vertical", fontFamily:"monospace"}} placeholder="Type your text or $$math$$ here..." /></div>
-          
-          <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", padding: "16px", borderRadius: "10px" }}>
-            <label style={{color:"#aaa", fontSize:"12px", display:"block", marginBottom:"8px"}}>Attach Diagram / Image (Optional)</label>
-            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-              <input type="file" id="q-image-upload" accept="image/*" onChange={(e) => {
-                const file = e.target.files[0];
-                if (file) {
-                  setImageFile(file);
-                  setQForm({...qForm, image_url: URL.createObjectURL(file)}); 
-                }
-              }} style={{ color: dark ? "#fff" : "#111", fontSize: "13px" }} />
-              
-              <span style={{ color: "#666", fontSize: "12px" }}>OR</span>
-              
-              <input value={!imageFile ? qForm.image_url : ""} onChange={e => { setImageFile(null); setQForm({...qForm, image_url:e.target.value}); }} style={{...inputS, flex: 1, padding: "8px"}} placeholder="Paste image URL here..." disabled={!!imageFile} />
-            </div>
 
+          {/* Question Image */}
+          <div style={{ background: dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: dark ? "1px dashed rgba(255,255,255,0.1)" : "1px dashed rgba(0,0,0,0.12)", padding: "16px", borderRadius: "10px" }}>
+            <label style={{ color: "#aaa", fontSize: "12px", display: "block", marginBottom: "10px" }}>📷 QUESTION IMAGE (Optional — for diagrams, maps, passages)</label>
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <label htmlFor="q-img" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: dark ? "#ddd" : "#333", padding: "8px 16px", borderRadius: "7px", cursor: "pointer", fontSize: "13px", whiteSpace: "nowrap" }}>
+                📁 Upload Image
+              </label>
+              <input type="file" id="q-img" accept="image/*" style={{ display: "none" }} onChange={e => {
+                const f = e.target.files[0];
+                if (f) { setQImageFile(f); setQForm(p => ({...p, image_url: URL.createObjectURL(f)})); }
+              }} />
+              <span style={{ color: "#555", fontSize: "12px" }}>OR</span>
+              <input value={qImageFile ? "" : qForm.image_url} onChange={e => { setQImageFile(null); setQForm(p => ({...p, image_url: e.target.value})); }} style={{...inputS, flex: 1, padding: "8px", marginBottom: 0}} placeholder="Paste image URL..." disabled={!!qImageFile} />
+            </div>
             {qForm.image_url && (
-              <div style={{ marginTop: "12px", padding: "10px", background: "rgba(0,0,0,0.3)", borderRadius: "8px", width: "fit-content", position: "relative" }}>
-                <img src={qForm.image_url} alt="Preview" style={{ maxHeight: "120px", borderRadius: "4px" }} onError={(e) => e.target.style.display='none'} />
-                <button onClick={() => { setImageFile(null); setQForm({...qForm, image_url: ""}); document.getElementById("q-image-upload").value = ""; }} style={{ position: "absolute", top: -8, right: -8, background: "#ff6b6b", color: "#fff", border: "none", borderRadius: "50%", width: 24, height: 24, cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}>×</button>
+              <div style={{ marginTop: "12px", position: "relative", display: "inline-block" }}>
+                <img src={qForm.image_url} alt="Preview" style={{ maxHeight: "140px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)" }} onError={e => e.target.style.display="none"} />
+                <button onClick={() => { setQImageFile(null); setQForm(p => ({...p, image_url: ""})); const el=document.getElementById("q-img"); if(el)el.value=""; }} style={{ position: "absolute", top: -8, right: -8, background: "#ff6b6b", color: "#fff", border: "none", borderRadius: "50%", width: 24, height: 24, cursor: "pointer", fontSize: "14px", lineHeight: "24px", textAlign: "center" }}>×</button>
               </div>
             )}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Option A *</label><input value={qForm.option_a} onChange={e=>setQForm({...qForm, option_a:e.target.value})} style={inputS} /></div>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Option B *</label><input value={qForm.option_b} onChange={e=>setQForm({...qForm, option_b:e.target.value})} style={inputS} /></div>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Option C</label><input value={qForm.option_c} onChange={e=>setQForm({...qForm, option_c:e.target.value})} style={inputS} /></div>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Option D</label><input value={qForm.option_d} onChange={e=>setQForm({...qForm, option_d:e.target.value})} style={inputS} /></div>
+          {/* Options */}
+          <div>
+            <label style={{ color: "#aaa", fontSize: "12px", display: "block", marginBottom: "10px" }}>OPTIONS *</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {["a","b","c","d"].map(opt => (
+                <div key={opt} style={{ display: "flex", gap: "10px", alignItems: "flex-start", background: qForm.correct_answer === opt ? (dark ? "rgba(74,222,128,0.06)" : "rgba(74,222,128,0.08)") : "transparent", border: qForm.correct_answer === opt ? "1px solid rgba(74,222,128,0.25)" : "1px solid transparent", borderRadius: "8px", padding: qForm.correct_answer === opt ? "8px" : "0" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", flexShrink: 0, paddingTop: "8px" }}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: qForm.correct_answer === opt ? "rgba(74,222,128,0.2)" : "rgba(255,255,255,0.06)", border: qForm.correct_answer === opt ? "2px solid #4ade80" : "1px solid rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: qForm.correct_answer === opt ? "#4ade80" : "#666", fontWeight: 800, fontSize: "12px", cursor: "pointer" }} onClick={() => setQForm(p => ({...p, correct_answer: opt}))}>
+                      {opt.toUpperCase()}
+                    </div>
+                    {qForm.correct_answer === opt && <span style={{ color: "#4ade80", fontSize: "9px", fontWeight: 700 }}>CORRECT</span>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <input value={qForm[`option_${opt}`]} onChange={e => setQForm(p => ({...p, [`option_${opt}`]: e.target.value}))} style={{...inputS, marginBottom: "6px"}} placeholder={`Option ${opt.toUpperCase()}${opt==="a"||opt==="b"?" *":""}`} />
+                    {/* Option image */}
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <label htmlFor={`opt-img-${opt}`} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#777", padding: "4px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "11px", whiteSpace: "nowrap" }}>🖼 Img</label>
+                      <input type="file" id={`opt-img-${opt}`} accept="image/*" style={{ display: "none" }} onChange={e => {
+                        const f = e.target.files[0];
+                        if (f) { setOptImageFiles(p => ({...p, [opt]: f})); setQForm(p2 => ({...p2, [`option_${opt}_image`]: URL.createObjectURL(f)})); }
+                      }} />
+                      {(qForm[`option_${opt}_image`] || optImageFiles[opt]) && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <img src={qForm[`option_${opt}_image`]} alt="" style={{ height: 32, borderRadius: "4px" }} onError={e => e.target.style.display="none"} />
+                          <button onClick={() => { setOptImageFiles(p => ({...p, [opt]: null})); setQForm(p => ({...p, [`option_${opt}_image`]: ""})); const el=document.getElementById(`opt-img-${opt}`); if(el)el.value=""; }} style={{ background: "rgba(255,50,50,0.2)", border: "none", color: "#ff6b6b", padding: "2px 6px", borderRadius: "4px", cursor: "pointer", fontSize: "11px" }}>Remove</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "12px", background: "rgba(255,255,255,0.02)", padding: "16px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Correct Answer</label><select value={qForm.correct_answer} onChange={e=>setQForm({...qForm, correct_answer:e.target.value})} style={inputS}><option value="a">A</option><option value="b">B</option><option value="c">C</option><option value="d">D</option></select></div>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Subject</label><input value={qForm.subject} onChange={e=>setQForm({...qForm, subject:e.target.value})} style={inputS} placeholder="e.g. Physics" /></div>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Marks</label><input type="number" step="0.5" value={qForm.marks} onChange={e=>setQForm({...qForm, marks:parseFloat(e.target.value)})} style={inputS} /></div>
-            <div><label style={{color:"#aaa", fontSize:"12px"}}>Negative</label><input type="number" step="0.25" value={qForm.negative_marks} onChange={e=>setQForm({...qForm, negative_marks:parseFloat(e.target.value)})} style={inputS} /></div>
+          {/* Correct Answer Selector */}
+          <div style={{ background: dark ? "rgba(74,222,128,0.05)" : "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.2)", padding: "14px", borderRadius: "10px" }}>
+            <label style={{ color: "#4ade80", fontSize: "12px", fontWeight: 700, display: "block", marginBottom: "10px" }}>✓ CORRECT ANSWER</label>
+            <div style={{ display: "flex", gap: "10px" }}>
+              {["a","b","c","d"].map(opt => (
+                <button key={opt} onClick={() => setQForm(p => ({...p, correct_answer: opt}))} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: qForm.correct_answer===opt ? "2px solid #4ade80" : "1px solid rgba(255,255,255,0.1)", background: qForm.correct_answer===opt ? "rgba(74,222,128,0.2)" : "rgba(255,255,255,0.04)", color: qForm.correct_answer===opt ? "#4ade80" : "#666", cursor: "pointer", fontWeight: 800, fontSize: "16px" }}>
+                  {opt.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div><label style={{color:"#aaa", fontSize:"12px"}}>Scientific Explanation (Optional)</label><textarea value={qForm.explanation} onChange={e=>setQForm({...qForm, explanation:e.target.value})} style={{...inputS, height:"60px", resize:"vertical"}} /></div>
+          {/* Meta fields */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px" }}>
+            <div>
+              <label style={{ color: "#aaa", fontSize: "11px", display: "block", marginBottom: "5px" }}>Subject</label>
+              <input value={qForm.subject} onChange={e => setQForm(p => ({...p, subject: e.target.value}))} style={inputS} placeholder="e.g. Maths" />
+            </div>
+            <div>
+              <label style={{ color: "#aaa", fontSize: "11px", display: "block", marginBottom: "5px" }}>Marks</label>
+              <input type="number" step="0.5" min="0" value={qForm.marks} onChange={e => setQForm(p => ({...p, marks: e.target.value}))} style={inputS} />
+            </div>
+            <div>
+              <label style={{ color: "#aaa", fontSize: "11px", display: "block", marginBottom: "5px" }}>Negative</label>
+              <input type="number" step="0.25" min="0" value={qForm.negative_marks} onChange={e => setQForm(p => ({...p, negative_marks: e.target.value}))} style={inputS} />
+            </div>
+            <div>
+              <label style={{ color: "#aaa", fontSize: "11px", display: "block", marginBottom: "5px" }}>Difficulty</label>
+              <select value={qForm.difficulty || "medium"} onChange={e => setQForm(p => ({...p, difficulty: e.target.value}))} style={inputS}>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+          </div>
 
-          <button onClick={handleManualSubmit} disabled={uploading} style={{ background: uploading ? "#555" : "linear-gradient(135deg, #FFD700, #FF8C00)", border: "none", color: "#000", padding: "14px", borderRadius: "8px", cursor: uploading?"not-allowed":"pointer", fontWeight: 800, fontSize: "15px" }}>
-            {uploading ? "Saving..." : editingQId ? "Update Question" : "Save New Question"}
+          {/* Explanation */}
+          <div>
+            <label style={{ color: "#aaa", fontSize: "12px", display: "block", marginBottom: "6px" }}>EXPLANATION (Optional — shown after test)</label>
+            <textarea value={qForm.explanation} onChange={e => setQForm(p => ({...p, explanation: e.target.value}))} style={{...inputS, minHeight: "60px", resize: "vertical"}} placeholder="Why is this the correct answer?" />
+          </div>
+
+          <button onClick={handleManualSubmit} disabled={uploading} style={{ background: uploading ? "#333" : "linear-gradient(135deg, #FFD700, #FF8C00)", border: "none", color: uploading ? "#666" : "#000", padding: "15px", borderRadius: "10px", cursor: uploading ? "not-allowed" : "pointer", fontWeight: 800, fontSize: "16px" }}>
+            {uploading ? "⏳ Saving..." : editingQId ? "✅ Update Question" : "✅ Save Question"}
           </button>
         </div>
       )}
 
-      {/* SMART FILE UPLOAD MODE */}
+      {/* ─── FILE UPLOAD MODE ─── */}
       {mode === "file" && (
         <div style={{ animation: "fadeIn 0.3s ease" }}>
+          {/* Format guide cards */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
-            <div style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <h4 style={{ color: "#fff", marginBottom: "8px" }}>📄 .TXT Format Rules</h4>
-              <pre style={{ fontSize: "11px", color: "#aaa", whiteSpace: "pre-wrap" }}>
-Q: What is the speed of light?
-Img: https://link.to/image.png
-A) 3x10^8 m/s
-B) 300 m/s
-C) 30 m/s
-D) 3 m/s
-Ans: a
-Exp: C is the constant for light.
+            <div style={{ background: dark ? "rgba(255,255,255,0.03)" : "#f9f9f9", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)", padding: "16px", borderRadius: "12px" }}>
+              <div style={{ color: dark ? "#FFD700" : "#92600A", fontWeight: 700, fontSize: "13px", marginBottom: "10px" }}>📄 TXT Format</div>
+              <pre style={{ fontSize: "11px", color: "#aaa", whiteSpace: "pre-wrap", lineHeight: 1.7, margin: 0 }}>
+{`Q: What is 2+2?
+A) 3
+B) 4
+C) 5
+D) 6
+Ans: b
+Subj: Maths
+Exp: Basic addition
+Marks: 1
+Neg: 0.25
+Img: https://...optional
+
+(blank line between questions)`}
               </pre>
             </div>
-            <div style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <h4 style={{ color: "#fff", marginBottom: "8px" }}>📊 .CSV Format Rules</h4>
-              <p style={{ fontSize: "11px", color: "#aaa" }}>Must include these column headers exactly:<br/><br/><strong style={{color:"#FFD700"}}>question_text, option_a, option_b, option_c, option_d, correct_answer, marks, negative_marks, subject, image_url, explanation</strong></p>
+            <div style={{ background: dark ? "rgba(255,255,255,0.03)" : "#f9f9f9", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)", padding: "16px", borderRadius: "12px" }}>
+              <div style={{ color: dark ? "#818cf8" : "#4338ca", fontWeight: 700, fontSize: "13px", marginBottom: "10px" }}>📊 CSV Format (Headers required)</div>
+              <div style={{ fontSize: "11px", color: "#aaa", lineHeight: 1.7 }}>
+                <div style={{ fontFamily: "monospace", color: dark ? "#FFD700" : "#92600A", marginBottom: "6px", fontSize: "10px", wordBreak: "break-all" }}>question_text, option_a, option_b, option_c, option_d, correct_answer, marks, negative_marks, subject, explanation, image_url</div>
+                <div>• correct_answer = a/b/c/d</div>
+                <div>• marks default = 1</div>
+                <div>• negative_marks default = 0.25</div>
+                <div>• image_url = full URL or blank</div>
+              </div>
             </div>
           </div>
 
-          <div style={{ border: "2px dashed rgba(255,215,0,0.4)", padding: "30px", borderRadius: "12px", textAlign: "center", background: "rgba(255,215,0,0.02)" }}>
-            <input type="file" id="smart-file-upload" accept=".csv, .txt" onChange={handleFileUpload} style={{ display: "none" }} />
-            <label htmlFor="smart-file-upload" style={{ background: "rgba(255,255,255,0.1)", padding: "12px 24px", borderRadius: "8px", color: "#fff", cursor: "pointer", fontWeight: 600, display: "inline-block", border: "1px solid rgba(255,255,255,0.2)" }}>
-              Browse Files (.txt or .csv)
-            </label>
-          </div>
+          {/* Drop Zone */}
+          <label htmlFor="bulk-file-upload" style={{ display: "block", border: "2px dashed rgba(255,215,0,0.4)", padding: "40px", borderRadius: "14px", textAlign: "center", background: "rgba(255,215,0,0.02)", cursor: "pointer" }}>
+            <div style={{ fontSize: "3rem", marginBottom: "10px" }}>📂</div>
+            <div style={{ color: dark ? "#FFD700" : "#92600A", fontWeight: 700, fontSize: "15px", marginBottom: "6px" }}>Click to browse or drag & drop</div>
+            <div style={{ color: "#666", fontSize: "13px" }}>Supports .txt and .csv files</div>
+            <input type="file" id="bulk-file-upload" accept=".csv,.txt" style={{ display: "none" }} onChange={handleFileUpload} />
+          </label>
 
-          {fileError && <div style={{ color: "#ff6b6b", fontSize: "13px", marginTop: "12px", padding: "10px", background: "rgba(255,0,0,0.1)", borderRadius: "8px" }}>{fileError}</div>}
+          {fileError && (
+            <div style={{ color: "#ff6b6b", fontSize: "13px", marginTop: "12px", padding: "12px", background: "rgba(255,0,0,0.08)", borderRadius: "8px" }}>
+              ⚠️ {fileError}
+            </div>
+          )}
 
           {fileData.length > 0 && (
             <div style={{ marginTop: "20px" }}>
-              <div style={{ color: "#4ade80", fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>✅ Detected {fileData.length} valid questions ready for upload.</div>
-              <button onClick={submitBulk} disabled={uploading} style={{ width: "100%", background: uploading ? "#333" : "linear-gradient(135deg, #FFD700, #FF8C00)", border: "none", color: uploading ? "#666" : "#000", padding: "12px 28px", borderRadius: "10px", cursor: uploading ? "not-allowed" : "pointer", fontSize: "15px", fontWeight: 700 }}>
-                {uploading ? "Uploading to Database..." : `Upload ${fileData.length} Questions`}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div style={{ color: "#4ade80", fontWeight: 700, fontSize: "14px" }}>✅ {fileData.length} valid questions ready</div>
+                <button onClick={() => setFilePreviewOpen(p => !p)} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>
+                  {filePreviewOpen ? "Hide Preview" : "Show Preview"}
+                </button>
+              </div>
+
+              {filePreviewOpen && (
+                <div style={{ maxHeight: "320px", overflowY: "auto", marginBottom: "16px", display: "flex", flexDirection: "column", gap: "8px" }} className="custom-scroll">
+                  {fileData.map((q, i) => (
+                    <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "12px 14px" }}>
+                      <div style={{ color: dark ? "#fff" : "#111", fontSize: "13px", marginBottom: "6px" }}><strong style={{ color: "#FFD700" }}>Q{i+1}.</strong> {q.question_text}</div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "11px" }}>
+                        {["a","b","c","d"].filter(o => q[`option_${o}`]).map(o => (
+                          <span key={o} style={{ padding: "2px 8px", borderRadius: "4px", background: q.correct_answer===o ? "rgba(74,222,128,0.2)" : "rgba(255,255,255,0.05)", color: q.correct_answer===o ? "#4ade80" : "#888", border: q.correct_answer===o ? "1px solid rgba(74,222,128,0.4)" : "1px solid rgba(255,255,255,0.06)" }}>
+                            {o.toUpperCase()}: {q[`option_${o}`]}
+                          </span>
+                        ))}
+                        <span style={{ color: "#666", padding: "2px 8px" }}>{q.subject}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => submitBulk(fileData)} disabled={uploading || !selectedTestId} style={{ width: "100%", background: uploading||!selectedTestId ? "#333" : "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: uploading||!selectedTestId ? "#666" : "#000", padding: "14px", borderRadius: "10px", cursor: uploading||!selectedTestId ? "not-allowed" : "pointer", fontWeight: 800, fontSize: "15px" }}>
+                {uploading ? "⏳ Uploading..." : !selectedTestId ? "⚠️ Select a test above first" : `Upload ${fileData.length} Questions to DB`}
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── AI SMART PASTE MODE ─── */}
+      {mode === "ai" && (
+        <div style={{ animation: "fadeIn 0.3s ease" }}>
+          <div style={{ background: "rgba(129,140,248,0.08)", border: "1px solid rgba(129,140,248,0.25)", borderRadius: "12px", padding: "16px", marginBottom: "20px" }}>
+            <div style={{ color: "#818cf8", fontWeight: 700, fontSize: "14px", marginBottom: "6px" }}>🤖 AI Smart Parser</div>
+            <div style={{ color: "#aaa", fontSize: "13px", lineHeight: 1.6 }}>Paste any raw text — copied from a PDF, image (OCR), website, or any source. AI will automatically detect and structure the questions, options, and answers.</div>
+          </div>
+
+          <div style={{ marginBottom: "16px" }}>
+            <label style={{ color: "#aaa", fontSize: "12px", display: "block", marginBottom: "8px" }}>PASTE RAW QUESTION TEXT</label>
+            <textarea value={aiRawText} onChange={e => setAiRawText(e.target.value)} style={{...inputS, minHeight: "200px", resize: "vertical", fontFamily: "monospace", fontSize: "13px"}} placeholder={`Paste anything here — messy or clean. Examples:\n\n1. What is the capital of India?\n(a) Mumbai (b) Delhi (c) Chennai (d) Kolkata\nAnswer: b\n\nOR from PDFs, any format...`} />
+          </div>
+
+          {aiError && <div style={{ color: "#ff6b6b", fontSize: "13px", marginBottom: "12px", padding: "10px", background: "rgba(255,0,0,0.08)", borderRadius: "8px" }}>{aiError}</div>}
+
+          <button onClick={handleAIParse} disabled={aiLoading || !aiRawText.trim()} style={{ background: aiLoading||!aiRawText.trim() ? "#333" : "linear-gradient(135deg, #818cf8, #6366f1)", border: "none", color: aiLoading||!aiRawText.trim() ? "#666" : "#fff", padding: "13px 28px", borderRadius: "10px", cursor: aiLoading||!aiRawText.trim() ? "not-allowed" : "pointer", fontWeight: 700, fontSize: "14px", marginBottom: "20px" }}>
+            {aiLoading ? "🤖 Parsing with AI..." : "🤖 Parse with AI"}
+          </button>
+
+          {aiParsed.length > 0 && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                <div style={{ color: "#4ade80", fontWeight: 700, fontSize: "14px" }}>✅ {aiParsed.length} questions detected</div>
+                <button onClick={() => submitBulk(aiParsed)} disabled={uploading || !selectedTestId} style={{ background: uploading||!selectedTestId ? "#333" : "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: uploading||!selectedTestId ? "#666" : "#000", padding: "10px 20px", borderRadius: "8px", cursor: uploading||!selectedTestId ? "not-allowed" : "pointer", fontWeight: 700, fontSize: "13px" }}>
+                  {uploading ? "Uploading..." : !selectedTestId ? "Select test first" : `Upload All ${aiParsed.length}`}
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "500px", overflowY: "auto" }} className="custom-scroll">
+                {aiParsed.map((q, i) => (
+                  <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "10px", padding: "14px" }}>
+                    <div style={{ color: dark ? "#fff" : "#111", fontSize: "14px", marginBottom: "10px" }}><strong style={{ color: "#818cf8" }}>Q{i+1}.</strong> {q.question_text}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "8px" }}>
+                      {["a","b","c","d"].filter(o => q[`option_${o}`]).map(o => (
+                        <div key={o} style={{ padding: "6px 10px", borderRadius: "6px", fontSize: "12px", background: q.correct_answer===o ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)", color: q.correct_answer===o ? "#4ade80" : (dark?"#ccc":"#444"), border: q.correct_answer===o ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,255,255,0.06)" }}>
+                          <strong>{o.toUpperCase()}.</strong> {q[`option_${o}`]}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: "10px", fontSize: "11px", color: "#666" }}>
+                      <span>✓ Ans: <strong style={{color:"#4ade80"}}>{q.correct_answer?.toUpperCase()}</strong></span>
+                      <span>📚 {q.subject}</span>
+                      <span>⭐ {q.marks}m</span>
+                      {q.explanation && <span title={q.explanation}>💡 Has explanation</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── MANAGE MODE ─── */}
+      {mode === "manage" && (
+        <div style={{ animation: "fadeIn 0.3s ease" }}>
+          {!selectedTestId ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "#555", background: "rgba(0,0,0,0.15)", borderRadius: "12px" }}>Select a test above to manage its questions.</div>
+          ) : loadingQs ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
+              <div style={{ width: 32, height: 32, border: "3px solid rgba(255,215,0,0.2)", borderTop: "3px solid #FFD700", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+            </div>
+          ) : (
+            <div>
+              {/* Stats bar */}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px", padding: "12px", background: "rgba(255,255,255,0.03)", borderRadius: "10px" }}>
+                {[
+                  ["Total", existingQs.length, "#FFD700"],
+                  ["Easy", existingQs.filter(q=>q.difficulty==="easy").length, "#4ade80"],
+                  ["Medium", existingQs.filter(q=>q.difficulty==="medium").length, "#fb923c"],
+                  ["Hard", existingQs.filter(q=>q.difficulty==="hard").length, "#ff6b6b"],
+                  ["With Images", existingQs.filter(q=>q.image_url).length, "#818cf8"],
+                ].map(([l,v,c]) => (
+                  <div key={l} style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "8px", background: "rgba(0,0,0,0.2)", borderRadius: "8px" }}>
+                    <div style={{ color: c, fontWeight: 700, fontSize: "18px" }}>{v}</div>
+                    <div style={{ color: "#555", fontSize: "10px" }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Filters & bulk actions */}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "14px", alignItems: "center" }}>
+                <input value={manageSearch} onChange={e => setManageSearch(e.target.value)} style={{...inputS, flex: 2, minWidth: 180, marginBottom: 0}} placeholder="🔍 Search questions..." />
+                <select value={manageSubjectFilter} onChange={e => setManageSubjectFilter(e.target.value)} style={{...inputS, flex: 1, minWidth: 130, marginBottom: 0}}>
+                  {allSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <button onClick={loadQuestions} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa", padding: "10px 14px", borderRadius: "8px", cursor: "pointer", fontSize: "13px" }}>🔄 Refresh</button>
+              </div>
+
+              {bulkSelect.length > 0 && (
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.25)", padding: "10px 14px", borderRadius: "8px", marginBottom: "12px" }}>
+                  <span style={{ color: "#ff6b6b", fontSize: "13px", fontWeight: 600 }}>{bulkSelect.length} selected</span>
+                  <button onClick={handleBulkDelete} style={{ background: "rgba(255,50,50,0.2)", border: "1px solid rgba(255,50,50,0.4)", color: "#ff6b6b", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>🗑 Delete Selected</button>
+                  <button onClick={() => setBulkSelect([])} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.12)", color: "#666", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>Clear</button>
+                </div>
+              )}
+
+              {filteredQs.length === 0 ? (
+                <div style={{ padding: "40px", textAlign: "center", color: "#555" }}>No questions match your filters.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {filteredQs.map((q, i) => (
+                    <div key={q.id} style={{ background: bulkSelect.includes(q.id) ? "rgba(255,215,0,0.06)" : (dark ? "rgba(255,255,255,0.04)" : "#fff"), border: bulkSelect.includes(q.id) ? "1px solid rgba(255,215,0,0.4)" : (dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)"), borderRadius: "10px", overflow: "hidden" }}>
+                      <div style={{ padding: "12px 14px", display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                        <input type="checkbox" checked={bulkSelect.includes(q.id)} onChange={e => setBulkSelect(p => e.target.checked ? [...p, q.id] : p.filter(x => x !== q.id))} style={{ marginTop: "4px", accentColor: "#FFD700", flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: dark ? "#fff" : "#111", fontSize: "13px", lineHeight: 1.5, marginBottom: "6px" }}>
+                            <strong style={{ color: "#FFD700", marginRight: "6px" }}>Q{i+1}.</strong>{q.question_text}
+                            {q.image_url && <span style={{ marginLeft: "8px", fontSize: "11px", color: "#818cf8" }}>🖼 has image</span>}
+                          </div>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "11px" }}>
+                            <span style={{ color: "#4ade80" }}>✓ {q.correct_answer?.toUpperCase()}</span>
+                            <span style={{ color: "#666" }}>{q.subject || "General"}</span>
+                            <span style={{ color: "#666" }}>{q.marks}m / -{q.negative_marks}m</span>
+                            {q.difficulty && <span style={{ color: q.difficulty==="easy"?"#4ade80":q.difficulty==="hard"?"#ff6b6b":"#fb923c" }}>{q.difficulty}</span>}
+                            {q.explanation && <span style={{ color: "#818cf8" }}>💡 explanation</span>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                          <button onClick={() => setPreviewQ(previewQ?.id === q.id ? null : q)} style={{ background: "rgba(129,140,248,0.1)", border: "1px solid rgba(129,140,248,0.25)", color: "#818cf8", padding: "5px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "11px" }}>👁 Preview</button>
+                          <button onClick={() => handleDuplicateQ(q)} style={{ background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.2)", color: "#4ade80", padding: "5px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "11px" }}>⧉ Dup</button>
+                          <button onClick={() => handleEditQ(q)} style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "5px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "11px" }}>✏️ Edit</button>
+                          <button onClick={() => handleDeleteQ(q.id)} style={{ background: "rgba(255,50,50,0.1)", border: "1px solid rgba(255,50,50,0.25)", color: "#ff6b6b", padding: "5px 10px", borderRadius: "5px", cursor: "pointer", fontSize: "11px" }}>🗑</button>
+                        </div>
+                      </div>
+                      {previewQ?.id === q.id && (
+                        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "14px", background: "rgba(0,0,0,0.15)" }}>
+                          {q.image_url && <img src={q.image_url} alt="" style={{ maxHeight: 160, borderRadius: "8px", marginBottom: "12px", display: "block" }} onError={e => e.target.style.display="none"} />}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+                            {["a","b","c","d"].filter(o => q[`option_${o}`]).map(o => (
+                              <div key={o} style={{ padding: "8px 12px", borderRadius: "7px", fontSize: "13px", background: q.correct_answer===o ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)", color: q.correct_answer===o ? "#4ade80" : (dark?"#ccc":"#555"), border: q.correct_answer===o ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,255,255,0.06)" }}>
+                                <strong>{o.toUpperCase()}.</strong> {q[`option_${o}`]}
+                              </div>
+                            ))}
+                          </div>
+                          {q.explanation && <div style={{ color: "#aaa", fontSize: "12px", padding: "10px", background: "rgba(255,215,0,0.04)", borderRadius: "6px", border: "1px solid rgba(255,215,0,0.1)" }}>💡 {q.explanation}</div>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2690,31 +4101,36 @@ Exp: C is the constant for light.
     </div>
   );
 }
-
 // ADMIN PANEL
 function AdminPanel({ user }) {
   const dark = useTheme();
   const [activeSection, setActiveSection] = useState("overview");
-  
-  // NEW: State for live dashboard metrics
-  const [metrics, setMetrics] = useState({ users: "—", tests: "—", attempts: "—", questions: "—" });
+  const [metrics, setMetrics] = useState({ users: "—", tests: "—", attempts: "—", questions: "—", orgs: "—" });
+  const [recentAttempts, setRecentAttempts] = useState([]);
+  const [metricsLoading, setMetricsLoading] = useState(false);
 
-  // NEW: Fetch live counts when looking at the overview
   useEffect(() => {
     if (user?.isAdmin && activeSection === "overview") {
+      setMetricsLoading(true);
+      // Each query is independent — one failure won't block others
+      const safe = (p) => p.catch(() => []);
       Promise.all([
-        supabaseRequest("/profiles?select=id", { token: user.token }),
-        supabaseRequest("/tests?select=id", { token: user.token }),
-        supabaseRequest("/attempts?select=id", { token: user.token }),
-        supabaseRequest("/questions?select=id", { token: user.token })
-      ]).then(([usersData, testsData, attemptsData, qsData]) => {
+        safe(supabaseRequest("/profiles?select=id", { token: user.token })),
+        safe(supabaseRequest("/tests?select=id", { token: user.token })),
+        safe(supabaseRequest("/attempts?select=id,user_id,score,total_marks,status,created_at,correct_count,wrong_count,unattempted_count,tests(name)&order=created_at.desc&limit=10", { token: user.token })),
+        safe(supabaseRequest("/questions?select=id", { token: user.token })),
+        safe(supabaseRequest("/organizations?select=id", { token: user.token })),
+      ]).then(([uD, tD, aD, qD, oD]) => {
         setMetrics({
-          users: usersData?.length || 0,
-          tests: testsData?.length || 0,
-          attempts: attemptsData?.length || 0,
-          questions: qsData?.length || 0
+          users: Array.isArray(uD) ? uD.length : "—",
+          tests: Array.isArray(tD) ? tD.length : "—",
+          attempts: Array.isArray(aD) ? aD.length : "—",
+          questions: Array.isArray(qD) ? qD.length : "—",
+          orgs: Array.isArray(oD) ? oD.length : "—",
         });
-      }).catch(() => {});
+        setRecentAttempts(Array.isArray(aD) ? aD : []);
+        setMetricsLoading(false);
+      });
     }
   }, [user, activeSection]);
 
@@ -2724,69 +4140,129 @@ function AdminPanel({ user }) {
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🔒</div>
           <h2 style={{ color: "#ff6b6b", fontFamily: "'Sora',sans-serif" }}>Access Denied</h2>
-          <p style={{ color: "#666" }}>Admin access only. Contact your administrator.</p>
+          <p style={{ color: "#666" }}>Admin access only.</p>
         </div>
       </div>
     );
   }
 
-  const sections = ["overview","organizations","exams","questions","users"];
-  
+  const SECTIONS = [
+    { key: "overview", icon: "📊", label: "Overview" },
+    { key: "questions", icon: "❓", label: "Questions" },
+    { key: "exams", icon: "📚", label: "Exams & Tests" },
+    { key: "organizations", icon: "🏛", label: "Organizations" },
+    { key: "users", icon: "👥", label: "Users" },
+  ];
+
   return (
     <div style={{ padding: "60px 0 0", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Mobile section switcher */}
-      <div style={{ display: "block", padding: "12px 16px", borderBottom: "1px solid rgba(255,50,50,0.15)" }} className="admin-mobile-nav">
+      {/* Mobile nav */}
+      <div style={{ display: "block", padding: "10px 16px", borderBottom: "1px solid rgba(255,50,50,0.15)" }} className="admin-mobile-nav">
         <select value={activeSection} onChange={e => setActiveSection(e.target.value)}
-          style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "#fff", border: dark ? "1px solid rgba(255,50,50,0.3)" : "1px solid rgba(255,50,50,0.3)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none" }}>
-          {sections.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "#fff", border: "1px solid rgba(255,50,50,0.3)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none" }}>
+          {SECTIONS.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
         </select>
       </div>
 
       <div style={{ display: "flex", flex: 1 }}>
         {/* Sidebar */}
-        <div style={{
-          width: "200px", flexShrink: 0,
-          background: dark ? "rgba(255,50,50,0.05)" : "rgba(255,50,50,0.03)", borderRight: dark ? "1px solid rgba(255,50,50,0.15)" : "1px solid rgba(255,50,50,0.12)",
-          padding: "20px 0", position: "sticky", top: 0, height: "100vh"
-        }} className="admin-sidebar">
-          <div style={{ padding: "0 16px 16px", color: "#ff6b6b", fontSize: "12px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase" }}>
-            Admin Panel
-          </div>
-          {sections.map(s => (
-            <button key={s} onClick={() => setActiveSection(s)} style={{
-              width: "100%", padding: "12px 16px", background: activeSection===s ? "rgba(255,50,50,0.1)" : "transparent",
-              border: "none", borderLeft: activeSection===s ? "2px solid #ff6b6b" : "2px solid transparent",
-              color: activeSection===s ? "#ff6b6b" : "#888",
-              cursor: "pointer", textAlign: "left", fontSize: "14px", textTransform: "capitalize"
-            }}>{s}</button>
+        <div style={{ width: "210px", flexShrink: 0, background: dark ? "rgba(255,50,50,0.04)" : "rgba(255,50,50,0.02)", borderRight: dark ? "1px solid rgba(255,50,50,0.12)" : "1px solid rgba(255,50,50,0.1)", padding: "20px 0", position: "sticky", top: 60, height: "calc(100vh - 60px)", overflowY: "auto" }} className="admin-sidebar">
+          <div style={{ padding: "0 16px 20px", color: "#ff6b6b", fontSize: "11px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase" }}>Admin Panel</div>
+          {SECTIONS.map(s => (
+            <button key={s.key} onClick={() => setActiveSection(s.key)} style={{ width: "100%", padding: "12px 16px", background: activeSection===s.key ? "rgba(255,50,50,0.1)" : "transparent", border: "none", borderLeft: activeSection===s.key ? "3px solid #ff6b6b" : "3px solid transparent", color: activeSection===s.key ? "#ff6b6b" : (dark?"#777":"#888"), cursor: "pointer", textAlign: "left", fontSize: "14px", display: "flex", alignItems: "center", gap: "10px", transition: "all 0.15s" }}>
+              <span>{s.icon}</span><span>{s.label}</span>
+            </button>
           ))}
+          <div style={{ margin: "20px 16px 0", height: "1px", background: "rgba(255,255,255,0.06)" }} />
+          <div style={{ padding: "16px", fontSize: "11px", color: "#444" }}>
+            <div style={{ marginBottom: "4px" }}>Logged in as:</div>
+            <div style={{ color: "#666", wordBreak: "break-all" }}>{user.email}</div>
+          </div>
         </div>
 
-        {/* Main Content Area */}
-        <div style={{ flex: 1, padding: "24px", minWidth: 0, overflowX: "auto" }}>
+        {/* Main */}
+        <div style={{ flex: 1, padding: "28px", minWidth: 0, overflowX: "hidden" }} className="admin-main-content">
+
+          {/* OVERVIEW */}
           {activeSection === "overview" && (
             <div>
-              <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "24px" }}>Dashboard Overview</h1>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: "16px" }}>
+              <div style={{ marginBottom: "28px" }}>
+                <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "24px", margin: 0 }}>Dashboard Overview</h1>
+                <p style={{ color: "#666", fontSize: "13px", marginTop: "4px" }}>Platform at a glance</p>
+              </div>
+
+              {/* Metric cards */}
+              <div className="admin-metric-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: "12px", marginBottom: "28px" }}>
                 {[
-                  ["Total Users", metrics.users, "#818cf8"],
-                  ["Total Tests", metrics.tests, "#4ade80"],
-                  ["Attempts", metrics.attempts, "#FFD700"],
-                  ["Questions", metrics.questions, "#fb923c"]
+                  ["👥 Users", metrics.users, "#818cf8"],
+                  ["📚 Tests", metrics.tests, "#4ade80"],
+                  ["📝 Attempts", metrics.attempts, "#FFD700"],
+                  ["❓ Questions", metrics.questions, "#fb923c"],
+                  ["🏛 Orgs", metrics.orgs, "#38bdf8"],
                 ].map(([l,v,c]) => (
-                  <div key={l} style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"12px", padding:"20px" }}>
-                    <div style={{color: dark ? "#555" : "#888",fontSize:"12px",marginBottom:"8px"}}>{l}</div>
-                    <div style={{color:c,fontSize:"2rem",fontWeight:900,fontFamily:"'Sora',sans-serif"}}>{v}</div>
+                  <div key={l} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "14px", padding: "20px", boxShadow: dark?"none":"0 2px 8px rgba(0,0,0,0.05)" }}>
+                    <div style={{ color: dark ? "#555" : "#888", fontSize: "12px", marginBottom: "8px" }}>{l}</div>
+                    <div style={{ color: c, fontSize: "2rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>{metricsLoading ? "…" : v}</div>
                   </div>
                 ))}
+              </div>
+
+              {/* Quick actions */}
+              <div style={{ marginBottom: "28px" }}>
+                <div style={{ color: dark ? "#555" : "#888", fontSize: "11px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "12px" }}>Quick Actions</div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {[
+                    ["➕ Add Questions", "questions", "linear-gradient(135deg,#FFD700,#FF8C00)", "#000"],
+                    ["📚 Manage Exams", "exams", "rgba(74,222,128,0.15)", "#4ade80"],
+                    ["👥 View Users", "users", "rgba(129,140,248,0.15)", "#818cf8"],
+                  ].map(([l, sec, bg, col]) => (
+                    <button key={sec} onClick={() => setActiveSection(sec)} style={{ background: bg, border: "none", color: col, padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recent attempts */}
+              <div>
+                <div style={{ color: dark ? "#555" : "#888", fontSize: "11px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "14px" }}>Recent Attempts</div>
+                {metricsLoading ? (
+                  <div style={{ color: "#555", padding: "20px" }}>Loading...</div>
+                ) : recentAttempts.length === 0 ? (
+                  <div style={{ color: "#555", padding: "20px", textAlign: "center" }}>No attempts yet.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {recentAttempts.map(a => {
+                      const pct = a.total_marks > 0 ? Math.round((a.score / a.total_marks) * 100) : 0;
+                      return (
+                        <div key={a.id} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "10px", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                          <div>
+                            <div style={{ color: dark ? "#ddd" : "#111", fontSize: "13px", fontWeight: 600 }}>{a.tests?.name || "Unknown Test"}</div>
+                            <div style={{ color: "#555", fontSize: "11px" }}>
+                              {a.user_id?.substring(0,8)}... • {new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ color: pct>=60?"#4ade80":pct>=40?"#fb923c":"#ff6b6b", fontWeight: 700, fontSize: "15px" }}>{pct}%</div>
+                              <div style={{ color: "#555", fontSize: "11px" }}>{a.score}/{a.total_marks}</div>
+                            </div>
+                            <div style={{ background: a.status==="completed"?"rgba(74,222,128,0.12)":"rgba(251,146,60,0.12)", border: a.status==="completed"?"1px solid rgba(74,222,128,0.3)":"1px solid rgba(251,146,60,0.3)", color: a.status==="completed"?"#4ade80":"#fb923c", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
+                              {a.status || "done"}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <button onClick={() => setActiveSection("users")} style={{ background: "transparent", border: dark?"1px solid rgba(255,255,255,0.1)":"1px solid rgba(0,0,0,0.1)", color: "#666", padding: "10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", marginTop: "4px" }}>View all users & attempts →</button>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {activeSection === "questions" && <AdminQuestions user={user} />}
+          {activeSection === "questions"     && <AdminQuestions user={user} />}
           {activeSection === "organizations" && <AdminOrganizations user={user} />}
-          {activeSection === "exams" && <AdminExams user={user} />}
-          {activeSection === "users" && <AdminUsers user={user} />}
+          {activeSection === "exams"         && <AdminExams user={user} />}
+          {activeSection === "users"         && <AdminUsers user={user} />}
         </div>
       </div>
     </div>
@@ -2873,14 +4349,14 @@ function Footer({ setPage }) {
 }
 
 // HOMEPAGE
-function HomePage({ setPage, setActiveExam }) {
+function HomePage({ setPage, setActiveExam, user }) {
   return (
     <>
-      <HeroSection setPage={setPage} />
+      <HeroSection setPage={setPage} user={user} />
       <LogoSlider />
       <ExamsPage setPage={setPage} setActiveExam={setActiveExam} />
       <FeaturesSection />
-      <PricingPage setPage={setPage} />
+      <PricingPage setPage={setPage} user={user} />
     </>
   );
 }
@@ -2891,6 +4367,7 @@ function HomePage({ setPage, setActiveExam }) {
 export default function App() {
   const [page, setPage] = useLocalStorage("mm_page", "home");
   const [user, setUser] = useLocalStorage("mm_user", null);
+  const [recoveryToken, setRecoveryToken] = useState(null); // for password reset flow
   const [activeExam, setActiveExam] = useLocalStorage("mm_activeExam", null);
   const [activeTest, setActiveTest] = useLocalStorage("mm_activeTest", null);
   const [dark, setDark] = useLocalStorage("mm_theme", true); // true=dark, false=light
@@ -2903,7 +4380,18 @@ export default function App() {
     const refreshToken = params.get("refresh_token");
     const type = params.get("type");
 
-    if (accessToken && (type === "signup" || type === "magiclink" || type === "recovery")) {
+    if (accessToken && type === "recovery") {
+      // Password reset flow — persist token to localStorage in case of re-render timing issues
+      window.history.replaceState(null, "", window.location.pathname);
+      setActiveTest(null);
+      setActiveExam(null);
+      localStorage.setItem("mm_recovery_token", accessToken);
+      setRecoveryToken(accessToken);
+      setPage("auth");
+      return;
+    }
+
+    if (accessToken && (type === "signup" || type === "magiclink")) {
       (async () => {
         try {
           const res = await fetch(SUPABASE_URL + "/auth/v1/user", {
@@ -2966,6 +4454,8 @@ export default function App() {
   const handleLogin = (u) => setUser(u);
   const handleLogout = () => {
     setUser(null);
+    setActiveTest(null);
+    setActiveExam(null);
     localStorage.removeItem("mm_session");
     localStorage.removeItem("mm_user");
     setPage("home");
@@ -3027,20 +4517,48 @@ export default function App() {
           .desktop-nav { display: none !important; }
           .mobile-menu-btn { display: block !important; }
           .question-grid-sidebar { display: none !important; }
-          .admin-sidebar { display: none; }
+          .admin-sidebar { display: none !important; }
           .exam-sidebar { display: none !important; }
           .palette-btn-mobile { display: flex !important; }
           .mobile-bottom-nav { display: flex !important; }
+          .admin-main-content { padding: 16px !important; }
+          .test-grid { grid-template-columns: 1fr !important; }
+          .sec-grid { grid-template-columns: 1fr 1fr !important; }
+          .exam-q-area { padding-bottom: 120px !important; }
+          .exam-topbar-title { font-size: 12px !important; max-width: 120px !important; }
+          .modal-grid { grid-template-columns: 1fr !important; }
+          .results-stats { grid-template-columns: 1fr 1fr !important; }
+          .section-pill { padding: 2px 6px !important; font-size: 10px !important; }
+          .admin-exams-form-grid { grid-template-columns: 1fr !important; }
+          .section-form-grid { grid-template-columns: 1fr 1fr !important; }
+          .dashboard-attempts { padding: 12px !important; }
+          .nav-user-email { display: none !important; }
         }
         @media (min-width: 769px) {
           .palette-btn-mobile { display: none !important; }
           .mobile-bottom-nav { display: none !important; }
           .exam-sidebar { display: block !important; }
         }
-        @media (max-width: 480px) { .mobile-menu { display: flex !important; } }
+        @media (max-width: 480px) {
+          .mobile-menu { display: flex !important; }
+          .sec-grid { grid-template-columns: 1fr !important; }
+          .section-form-grid { grid-template-columns: 1fr !important; }
+          .exam-options { font-size: 14px !important; }
+          .results-stats { grid-template-columns: 1fr 1fr !important; }
+          .section-tabs-bar button { padding: 8px 10px !important; font-size: 11px !important; }
+          .admin-metric-grid { grid-template-columns: 1fr 1fr !important; }
+        }
         @media (min-width: 769px) { .mobile-menu { display: none !important; } }
         .admin-mobile-nav { display: none !important; }
         @media (max-width: 768px) { .admin-mobile-nav { display: block !important; } }
+        /* Smooth scrolling on mobile */
+        @media (max-width: 768px) {
+          .custom-scroll { -webkit-overflow-scrolling: touch; }
+        }
+        /* Fix iOS input zoom */
+        @media (max-width: 768px) {
+          input, select, textarea { font-size: 16px !important; }
+        }
       `}</style>
 
       {showNav && (
@@ -3048,10 +4566,10 @@ export default function App() {
       )}
 
       <main>
-        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} />}
+        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} user={user} />}
         {page === "exams"          && <ExamsPage setPage={setPage} setActiveExam={setActiveExam} />}
         {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPage} setActiveTest={setActiveTest} user={user} />}
-        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} />}
+        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} recoveryToken={recoveryToken} onRecoveryUsed={() => setRecoveryToken(null)} />}
         {page === "dashboard"      && <DashboardPage user={user} setPage={setPage} />}
         {page === "exam-interface" && <ExamInterface setPage={setPage} activeTest={activeTest} />}
         {page === "pricing"        && <PricingPage setPage={setPage} />}
