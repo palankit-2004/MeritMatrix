@@ -2,15 +2,112 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+    <!-- Primary SEO -->
+    <title>MeritMatrix — Odisha's #1 Mock Test Platform</title>
+    <meta name="description" content="Practice OSSSC CRE, SI, Constable, NDA, CDS and defence exams with full mock tests, section-wise analysis and detailed scorecards. Trusted by thousands of aspirants in Odisha." />
+    <meta name="keywords" content="OSSSC mock test, Odisha police exam, OSSSC CRE mock test, Odisha mock test, defence exam practice, NDA mock test, MeritMatrix" />
+    <meta name="author" content="MeritMatrix" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#080a14" />
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://meritmatrix.netlify.app/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://meritmatrix.netlify.app/" />
+    <meta property="og:site_name" content="MeritMatrix" />
+    <meta property="og:title" content="MeritMatrix — Odisha's #1 Mock Test Platform" />
+    <meta property="og:description" content="Practice OSSSC, police and defence exams with full mock tests, section-wise performance analysis and detailed scorecards. Free and premium tests." />
+    <meta property="og:image" content="https://meritmatrix.netlify.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_IN" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://meritmatrix.netlify.app/" />
+    <meta name="twitter:title" content="MeritMatrix — Odisha's #1 Mock Test Platform" />
+    <meta name="twitter:description" content="Practice OSSSC, police and defence exams with full mock tests and detailed scorecards." />
+    <meta name="twitter:image" content="https://meritmatrix.netlify.app/og-image.png" />
+
+    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="MeritMatrix - Odisha's Premier Mock Test Platform for Defence & Government Exams" />
-    <meta name="keywords" content="Odisha Police, Army, Navy, Agniveer, SSC GD, Mock Test, OSSSC, OSSC" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <title>MeritMatrix - Crack Your Dream Exam</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "EducationalOrganization",
+      "name": "MeritMatrix",
+      "url": "https://meritmatrix.netlify.app",
+      "logo": "https://meritmatrix.netlify.app/favicon.png",
+      "description": "Odisha's #1 online mock test platform for OSSSC, police and defence exam preparation",
+      "offers": {
+        "@type": "Offer",
+        "category": "Online Mock Tests",
+        "price": "0",
+        "priceCurrency": "INR"
+      },
+      "areaServed": {
+        "@type": "State",
+        "name": "Odisha",
+        "addressCountry": "IN"
+      }
+    }
+    </script>
+
+    <!-- Security headers via meta -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+
+    <style>
+      /* Critical path CSS — prevent FOUC */
+      html { background: #080a14; }
+      body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; background: #080a14; color: #fff; }
+      #root { min-height: 100vh; }
+      /* Loading spinner */
+      #app-loader {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: #080a14; z-index: 9999; flex-direction: column; gap: 16px;
+      }
+      #app-loader .spinner {
+        width: 40px; height: 40px; border: 3px solid rgba(255,215,0,0.15);
+        border-top: 3px solid #FFD700; border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      #app-loader .logo-text { color: #FFD700; font-weight: 800; font-size: 1.5rem; letter-spacing: -0.5px; }
+      #app-loader .tagline { color: #444; font-size: 13px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
+    <!-- Loading screen shown until React mounts -->
+    <div id="app-loader">
+      <div class="spinner"></div>
+      <div class="logo-text">MeritMatrix</div>
+      <div class="tagline">Loading your exam platform...</div>
+    </div>
+
     <div id="root"></div>
+
+    <script>
+      // Hide loader once React renders
+      window.__hideLoader = function() {
+        var l = document.getElementById('app-loader');
+        if (l) { l.style.opacity = '0'; l.style.transition = 'opacity 0.3s'; setTimeout(function(){ l.remove(); }, 300); }
+      };
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

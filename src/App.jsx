@@ -89,6 +89,35 @@ const useAuth = () => useContext(AuthContext);
 const ThemeContext = createContext("dark");
 const useTheme = () => useContext(ThemeContext);
 
+// Light mode uses slightly darkened accents for eye comfort
+const T = {
+  // Backgrounds
+  examBg:   (d) => d ? "#080a14"   : "#eef0f5",
+  cardBg:   (d) => d ? "rgba(255,255,255,0.05)" : "#ffffff",
+  sidebarBg:(d) => d ? "rgba(0,0,0,0.3)"        : "#e8eaf0",
+  topbarBg: (d) => d ? "rgba(8,10,20,0.98)"      : "rgba(240,242,248,0.98)",
+  inputBg:  (d) => d ? "rgba(255,255,255,0.06)"  : "rgba(0,0,0,0.06)",
+  // Text
+  primary:  (d) => d ? "#ffffff" : "#111111",
+  secondary:(d) => d ? "#aaaaaa" : "#444444",
+  muted:    (d) => d ? "#555555" : "#777777",
+  // Accents — slightly darker in light mode for eye comfort
+  gold:     (d) => d ? "#FFD700" : "#b8860b",   // dark gold
+  green:    (d) => d ? "#4ade80" : "#15803d",   // dark green
+  red:      (d) => d ? "#ff6b6b" : "#b91c1c",   // dark red
+  orange:   (d) => d ? "#fb923c" : "#c2410c",   // dark orange
+  purple:   (d) => d ? "#818cf8" : "#4338ca",   // dark indigo
+  // Option states in exam
+  optDefault:   (d) => d ? {bg:"rgba(255,255,255,0.04)",   border:"rgba(255,255,255,0.1)",  text:"#aaa"}
+                         : {bg:"rgba(0,0,0,0.04)",          border:"rgba(0,0,0,0.15)",       text:"#444"},
+  optSelected:  (d) => d ? {bg:"rgba(99,102,241,0.18)",    border:"rgba(99,102,241,0.6)",   text:"#818cf8"}
+                         : {bg:"rgba(67,56,202,0.1)",       border:"rgba(67,56,202,0.5)",    text:"#3730a3"},
+  optCorrect:   (d) => d ? {bg:"rgba(74,222,128,0.14)",    border:"rgba(74,222,128,0.5)",   text:"#4ade80"}
+                         : {bg:"rgba(21,128,61,0.1)",       border:"rgba(21,128,61,0.5)",    text:"#15803d"},
+  optWrong:     (d) => d ? {bg:"rgba(255,100,100,0.12)",   border:"rgba(255,100,100,0.5)",  text:"#ff6b6b"}
+                         : {bg:"rgba(185,28,28,0.08)",      border:"rgba(185,28,28,0.4)",    text:"#b91c1c"},
+};
+
 // ============================================================
 // SUPABASE CONFIG (replace with real values)
 // ============================================================
@@ -100,7 +129,7 @@ async function supabaseRequest(endpoint, options = {}) {
   // 1. Always try to grab the absolute freshest token from storage first
   let activeToken = options.token || SUPABASE_ANON_KEY;
   try {
-    const sessionStr = localStorage.getItem("mm_session");
+    const sessionStr = sessionStorage.getItem("mm_session");
     if (sessionStr) {
       const session = JSON.parse(sessionStr);
       if (session.access_token) activeToken = session.access_token;
@@ -126,7 +155,7 @@ async function supabaseRequest(endpoint, options = {}) {
   // 3. SILENT REFRESH: If it fails due to an expired JWT (401 Unauthorized), intercept it!
   if (res.status === 401 || res.status === 403) {
     try {
-      const sessionStr = localStorage.getItem("mm_session");
+      const sessionStr = sessionStorage.getItem("mm_session");
       if (sessionStr) {
         const session = JSON.parse(sessionStr);
         if (session.refresh_token) {
@@ -140,19 +169,24 @@ async function supabaseRequest(endpoint, options = {}) {
           const refreshed = await refreshRes.json();
           if (refreshed.access_token) {
             // Success! Save the new tokens to local storage immediately
-            localStorage.setItem("mm_session", JSON.stringify({
+            sessionStorage.setItem("mm_session", JSON.stringify({
                ...session, 
                access_token: refreshed.access_token, 
                refresh_token: refreshed.refresh_token || session.refresh_token 
             }));
             
             // Sync the user object token as well
-            const userStr = localStorage.getItem("mm_user");
-            if (userStr) {
-              const userData = JSON.parse(userStr);
-              userData.token = refreshed.access_token;
-              localStorage.setItem("mm_user", JSON.stringify(userData));
-            }
+            // Update sessionStorage user token
+            try {
+              const s2 = sessionStorage.getItem("mm_session");
+              if (s2) {
+                const parsed = JSON.parse(s2);
+                if (parsed.user) {
+                  parsed.user.token = refreshed.access_token;
+                  sessionStorage.setItem("mm_session", JSON.stringify(parsed));
+                }
+              }
+            } catch {}
 
             // 4. Retry the exact same request they originally made, but with the new key
             res = await makeFetch(refreshed.access_token);
@@ -167,8 +201,10 @@ async function supabaseRequest(endpoint, options = {}) {
   // Handle standard errors
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || "Request failed");
+    throw new Error(err.message || err.hint || err.details || `HTTP ${res.status}`);
   }
+  // 204 No Content (DELETE/PATCH with return=minimal) — return null, not error
+  if (res.status === 204) return null;
   return res.json().catch(() => null);
 }
 
@@ -772,8 +808,35 @@ function TestInstructionsModal({ test, onConfirm, onCancel, dark }) {
           {/* Admin Specific Instructions */}
           <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
             <h3 style={{ color: dark ? "#FFD700" : "#92600A", fontSize: "12px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>📝 Specific Instructions for this Test</h3>
-            <div style={{ color: "#aaa", fontSize: "13px", lineHeight: "1.6", background: "rgba(255,215,0,0.04)", padding: "16px", borderRadius: "12px", border: "1px solid rgba(255,215,0,0.1)" }}>
-              {test.instructions || "No additional specific instructions provided for this test. Follow general guidelines."}
+            <div style={{ background: "rgba(255,215,0,0.04)", padding: "16px", borderRadius: "12px", border: "1px solid rgba(255,215,0,0.1)" }}>
+              {test.instructions ? (() => {
+                // Split on patterns like "1." "2." etc or ". " between sentences
+                const raw = test.instructions.trim();
+                // Try to split on numbered points: "1. " "2. " etc
+                const numbered = raw.split(/(?=\d+\.\s)/g).filter(s => s.trim());
+                if (numbered.length > 1) {
+                  return (
+                    <ol style={{ margin: 0, padding: "0 0 0 18px", listStyle: "decimal" }}>
+                      {numbered.map((pt, i) => {
+                        const clean = pt.replace(/^\d+\.\s*/, "").trim();
+                        return clean ? <li key={i} style={{ color: "#aaa", fontSize: "13px", lineHeight: "1.7", marginBottom: "4px" }}>{clean}</li> : null;
+                      })}
+                    </ol>
+                  );
+                }
+                // fallback: split on ". " as sentences
+                const sentences = raw.split(/\. (?=[A-Z0-9])/g).filter(s => s.trim());
+                if (sentences.length > 1) {
+                  return (
+                    <ul style={{ margin: 0, padding: "0 0 0 18px" }}>
+                      {sentences.map((s, i) => (
+                        <li key={i} style={{ color: "#aaa", fontSize: "13px", lineHeight: "1.7", marginBottom: "4px" }}>{s.replace(/\.$/, "")}</li>
+                      ))}
+                    </ul>
+                  );
+                }
+                return <p style={{ color: "#aaa", fontSize: "13px", lineHeight: "1.6", margin: 0 }}>{raw}</p>;
+              })() : <p style={{ color: "#555", fontSize: "13px", margin: 0 }}>No additional instructions provided for this test.</p>}
             </div>
           </div>
         </div>
@@ -893,7 +956,8 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
                   {test.duration_minutes} min • {test.total_marks} Marks • -{test.negative_value} negative
                   {test._questionCount !== undefined && <span style={{color:"rgba(255,215,0,0.7)", marginLeft:"6px"}}>({test._questionCount} questions)</span>}
                 </div>
-                {test.instructions && <div style={{ color: dark ? "#555" : "#888", fontSize: "12px", marginTop: "4px" }}>{test.instructions}</div>}
+
+
               </div>
               <button
                 onClick={() => {
@@ -904,7 +968,8 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
                     duration: test.duration_minutes, 
                     limit: test.total_marks, 
                     negative_value: test.negative_value, 
-                    instructions: test.instructions 
+                    instructions: test.instructions,
+                    sections: test.sections || null,
                   });
                 }}
                 style={{
@@ -965,9 +1030,9 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
 
   // On mount: check localStorage for recovery token (persisted by root App)
   useEffect(() => {
-    const storedToken = localStorage.getItem("mm_recovery_token");
+    const storedToken = sessionStorage.getItem("mm_recovery_token");
     if (storedToken) {
-      localStorage.removeItem("mm_recovery_token"); // consume it immediately
+      sessionStorage.removeItem("mm_recovery_token"); // consume it immediately
       setResetToken(storedToken);
       setMode("reset");
       return;
@@ -992,7 +1057,7 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
           });
           const userData = await res.json();
           if (userData?.id) {
-            localStorage.setItem("mm_session", JSON.stringify({ access_token: accessToken, user: userData }));
+            sessionStorage.setItem("mm_session", JSON.stringify({ access_token: accessToken, user: userData }));
             let isAdmin = false;
             try {
               const roles = await supabaseRequest(`/roles?user_id=eq.${userData.id}&select=role`, { token: accessToken });
@@ -1025,7 +1090,7 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
       });
       const data = await res.json();
       if (data.error || data.error_description) throw new Error(data.error_description || data.error?.message || "Failed to reset password");
-      localStorage.removeItem("mm_recovery_token");
+      sessionStorage.removeItem("mm_recovery_token");
       setSuccess("✅ Password updated successfully! Sign in with your new password.");
       setMode("login");
       setResetToken(null);
@@ -1051,7 +1116,7 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
 
         // If confirm email is OFF — Supabase returns access_token immediately
         if (data.access_token) {
-          localStorage.setItem("mm_session", JSON.stringify(data));
+          sessionStorage.setItem("mm_session", JSON.stringify(data));
           // Save name and state to profiles
           try {
             await supabaseRequest(`/profiles?id=eq.${data.user?.id}`, {
@@ -1079,7 +1144,7 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
         } else {
           // Confirm email is ON — show check email screen (profile saved after verification)
           // Store name+state temporarily so we can save after email confirm
-          localStorage.setItem("mm_pending_profile", JSON.stringify({ full_name: fullName.trim(), state }));
+          sessionStorage.setItem("mm_pending_profile", JSON.stringify({ full_name: fullName.trim(), state }));
           setVerifyEmail(email);
         }
         setLoading(false);
@@ -1088,7 +1153,7 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
         // Login
         const data = await supabaseAuth("token?grant_type=password", { email, password });
         if (data.error || data.error_description) throw new Error(data.error_description || data.error?.message || "Invalid email or password");
-        localStorage.setItem("mm_session", JSON.stringify(data));
+        sessionStorage.setItem("mm_session", JSON.stringify(data));
         let isAdmin = false;
         try {
           const roles = await supabaseRequest(`/roles?user_id=eq.${data.user?.id}&select=role`, { token: data.access_token });
@@ -1351,123 +1416,320 @@ function AuthPage({ setPage, onLogin, recoveryToken: propRecoveryToken, onRecove
   );
 }
 // DASHBOARD
-function DashboardPage({ user, setPage }) {
+function ScorecardModal({ attempt, dark, onClose, onReattempt }) {
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all"); // all|correct|wrong|skipped
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!attempt?.test_id) { setLoading(false); return; }
+    supabaseRequest(`/questions?test_id=eq.${attempt.test_id}&select=*&order=order_index.asc`, { token: user?.token })
+      .then(data => { setQuestions(data || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [attempt?.test_id]);
+
+  const answers = (() => { try { return JSON.parse(attempt.answers_snapshot || "{}"); } catch { return {}; } })();
+  const subjectScores = (() => { try { return JSON.parse(attempt.subject_scores || "{}"); } catch { return {}; } })();
+  const pct = attempt.total_marks > 0 ? Math.round((attempt.score / attempt.total_marks) * 100) : 0;
+  const grade = pct >= 90 ? {l:"Excellent",c:"#FFD700",e:"🥇"} : pct >= 75 ? {l:"Very Good",c:"#4ade80",e:"🎉"} : pct >= 60 ? {l:"Good",c:"#4ade80",e:"👍"} : pct >= 40 ? {l:"Average",c:"#fb923c",e:"📈"} : {l:"Need Practice",c:"#ff6b6b",e:"💪"};
+  const mm = Math.floor((attempt.time_taken_seconds||0)/60), ss = String((attempt.time_taken_seconds||0)%60).padStart(2,"0");
+
+  const filteredQs = questions.filter(q => {
+    const ua = answers[q.id];
+    const isCorrect = ua !== undefined && String(ua).toLowerCase().trim() === String(q.correct_answer||q.correct).toLowerCase().trim();
+    const isWrong = ua !== undefined && !isCorrect;
+    const isSkipped = ua === undefined;
+    if (filter === "correct") return isCorrect;
+    if (filter === "wrong") return isWrong;
+    if (filter === "skipped") return isSkipped;
+    return true;
+  });
+
+  const cardBg = dark ? "rgba(255,255,255,0.04)" : "#fff";
+  const border = dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)";
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9000, overflowY:"auto", padding:"20px 1rem 60px" }}>
+      <div style={{ maxWidth:"860px", margin:"0 auto" }}>
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px", flexWrap:"wrap", gap:"12px" }}>
+          <div>
+            <div style={{ color:"#aaa", fontSize:"12px", marginBottom:"4px" }}>DETAILED SCORECARD</div>
+            <h2 style={{ color:"#fff", fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:"1.4rem", margin:0 }}>{attempt.tests?.name || "Test"}</h2>
+            <div style={{ color:"#555", fontSize:"12px", marginTop:"4px" }}>{new Date(attempt.created_at).toLocaleString("en-IN", {day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+          </div>
+          <div style={{ display:"flex", gap:"8px" }}>
+            {onReattempt && (
+              <button onClick={onReattempt} style={{ background:"linear-gradient(135deg,#4ade80,#22c55e)", border:"none", color:"#000", padding:"10px 20px", borderRadius:"8px", cursor:"pointer", fontWeight:700, fontSize:"13px" }}>🔄 Reattempt</button>
+            )}
+            <button onClick={onClose} style={{ background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.15)", color:"#aaa", padding:"10px 18px", borderRadius:"8px", cursor:"pointer", fontSize:"13px" }}>✕ Close</button>
+          </div>
+        </div>
+
+        {/* Score hero */}
+        <div style={{ background:"linear-gradient(135deg,rgba(255,215,0,0.1),rgba(255,140,0,0.06))", border:"1px solid rgba(255,215,0,0.2)", borderRadius:"20px", padding:"24px", marginBottom:"16px", display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:"16px", textAlign:"center" }}>
+          <div>
+            <div style={{ fontSize:"3rem", fontWeight:900, fontFamily:"'Sora',sans-serif", color:"#FFD700", lineHeight:1 }}>{pct}%</div>
+            <div style={{ color:"#888", fontSize:"12px", marginTop:"4px" }}>{attempt.score}/{attempt.total_marks} marks</div>
+            <div style={{ color:grade.c, fontSize:"12px", fontWeight:700, marginTop:"4px" }}>{grade.e} {grade.l}</div>
+          </div>
+          {[
+            ["✓ Correct", attempt.correct_count||0, "#4ade80"],
+            ["✗ Wrong", attempt.wrong_count||0, "#ff6b6b"],
+            ["— Skipped", attempt.unattempted_count||0, "#818cf8"],
+            ["⏱ Time", `${mm}m ${ss}s`, "#fb923c"],
+          ].map(([l,v,c]) => (
+            <div key={l}>
+              <div style={{ color:c, fontSize:"1.6rem", fontWeight:900, fontFamily:"'Sora',sans-serif", lineHeight:1 }}>{v}</div>
+              <div style={{ color:"#666", fontSize:"11px", marginTop:"4px" }}>{l}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Subject-wise */}
+        {Object.keys(subjectScores).length > 0 && (
+          <div style={{ background:cardBg, border, borderRadius:"16px", padding:"20px", marginBottom:"16px" }}>
+            <div style={{ color:"#aaa", fontSize:"11px", fontWeight:700, letterSpacing:"1px", textTransform:"uppercase", marginBottom:"14px" }}>Subject-wise Performance</div>
+            {Object.entries(subjectScores).map(([subj, d]) => {
+              const maxMarks = questions.filter(q => (q.subject||"General") === subj).reduce((s,q) => s+(q.marks||1), 0);
+              const spct = maxMarks > 0 ? Math.max(0, Math.round((d.score/maxMarks)*100)) : 0;
+              const accuracy = d.total > 0 ? Math.round((d.correct/d.total)*100) : 0;
+              return (
+                <div key={subj} style={{ marginBottom:"14px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px", flexWrap:"wrap", gap:"6px" }}>
+                    <span style={{ color:dark?"#ddd":"#222", fontWeight:600, fontSize:"14px" }}>{subj}</span>
+                    <div style={{ display:"flex", gap:"12px", fontSize:"12px" }}>
+                      <span style={{ color:"#4ade80" }}>✓ {d.correct}</span>
+                      <span style={{ color:"#ff6b6b" }}>✗ {d.wrong}</span>
+                      <span style={{ color:"#818cf8" }}>— {d.skipped}</span>
+                      <span style={{ color:"#fb923c", fontWeight:700 }}>Acc: {accuracy}%</span>
+                      <span style={{ color:"#FFD700", fontWeight:700 }}>{d.score.toFixed(1)}/{maxMarks}</span>
+                    </div>
+                  </div>
+                  <div style={{ height:"8px", borderRadius:"4px", background:"rgba(255,255,255,0.06)", overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${spct}%`, background:spct>=70?"#4ade80":spct>=40?"#fb923c":"#ff6b6b", borderRadius:"4px", transition:"width 1s ease" }} />
+                  </div>
+                  <div style={{ color:"#555", fontSize:"11px", marginTop:"3px" }}>{spct}% score rate</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Performance insights */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:"12px", marginBottom:"16px" }}>
+          {[
+            ["🎯 Accuracy", `${(attempt.correct_count||0)+(attempt.wrong_count||0) > 0 ? Math.round((attempt.correct_count||0)/((attempt.correct_count||0)+(attempt.wrong_count||0))*100) : 0}%`, "of attempted", "#4ade80"],
+            ["📊 Attempt Rate", `${attempt.total_marks > 0 ? Math.round(((attempt.correct_count||0)+(attempt.wrong_count||0))/(questions.length||1)*100) : 0}%`, `${(attempt.correct_count||0)+(attempt.wrong_count||0)} of ${questions.length} Qs`, "#FFD700"],
+            ["⚠️ Marks Lost", `-${(attempt.wrong_count||0) > 0 ? (questions.find(q=>q)?.negative_marks || 0.33) * (attempt.wrong_count||0) : 0}`, "from wrong answers", "#ff6b6b"],
+            ["⏱ Avg/Question", questions.length > 0 ? `${Math.round((attempt.time_taken_seconds||0)/questions.length)}s` : "—", "per question", "#fb923c"],
+          ].map(([l,v,sub,c]) => (
+            <div key={l} style={{ background:cardBg, border, borderRadius:"12px", padding:"16px" }}>
+              <div style={{ color:"#666", fontSize:"11px", marginBottom:"6px" }}>{l}</div>
+              <div style={{ color:c, fontSize:"1.5rem", fontWeight:900, fontFamily:"'Sora',sans-serif" }}>{v}</div>
+              <div style={{ color:"#555", fontSize:"11px", marginTop:"3px" }}>{sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Question-by-question review */}
+        <div style={{ background:cardBg, border, borderRadius:"16px", padding:"20px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"16px", flexWrap:"wrap", gap:"10px" }}>
+            <div style={{ color:"#aaa", fontSize:"11px", fontWeight:700, letterSpacing:"1px", textTransform:"uppercase" }}>Question Review ({filteredQs.length})</div>
+            <div style={{ display:"flex", gap:"6px", flexWrap:"wrap" }}>
+              {[["all","All","#666"],["correct","Correct","#4ade80"],["wrong","Wrong","#ff6b6b"],["skipped","Skipped","#818cf8"]].map(([k,l,c]) => (
+                <button key={k} onClick={() => setFilter(k)} style={{ background:filter===k?`${c}20`:"transparent", border:`1px solid ${filter===k?c:"rgba(255,255,255,0.1)"}`, color:filter===k?c:"#555", padding:"5px 12px", borderRadius:"20px", cursor:"pointer", fontSize:"12px", fontWeight:700 }}>{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign:"center", padding:"40px", color:"#555" }}>Loading questions...</div>
+          ) : filteredQs.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"30px", color:"#555" }}>No questions in this filter.</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:"14px" }}>
+              {filteredQs.map((q, qi) => {
+                const ua = answers[q.id];
+                const correct = q.correct_answer || q.correct;
+                const isCorrect = ua !== undefined && String(ua).toLowerCase().trim() === String(correct).toLowerCase().trim();
+                const isSkipped = ua === undefined;
+                const statusColor = isCorrect ? "#4ade80" : isSkipped ? "#818cf8" : "#ff6b6b";
+                const statusLabel = isCorrect ? "✓ Correct" : isSkipped ? "— Skipped" : "✗ Wrong";
+                const opts = [q.option_a, q.option_b, q.option_c, q.option_d];
+                const letters = ["a","b","c","d"];
+                return (
+                  <div key={q.id} style={{ border:`1px solid ${statusColor}30`, borderLeft:`4px solid ${statusColor}`, borderRadius:"10px", padding:"14px 16px", background:`${statusColor}06` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:"10px", marginBottom:"10px", flexWrap:"wrap" }}>
+                      <div style={{ display:"flex", gap:"8px", alignItems:"center", flexWrap:"wrap" }}>
+                        <span style={{ background:"rgba(255,255,255,0.06)", color:"#888", padding:"2px 8px", borderRadius:"4px", fontSize:"11px", fontWeight:700 }}>Q{questions.indexOf(q)+1}</span>
+                        {q.subject && <span style={{ color:"#666", fontSize:"11px" }}>{q.subject}</span>}
+                        <span style={{ color:statusColor, fontSize:"11px", fontWeight:700 }}>{statusLabel}</span>
+                      </div>
+                      <div style={{ display:"flex", gap:"10px", fontSize:"12px" }}>
+                        <span style={{ color:"#4ade80" }}>+{q.marks||1}</span>
+                        <span style={{ color:"#ff6b6b" }}>-{q.negative_marks||0}</span>
+                      </div>
+                    </div>
+                    {q.image_url && <img src={q.image_url} alt="" style={{ maxHeight:120, borderRadius:"6px", marginBottom:"10px", display:"block" }} onError={e=>e.target.style.display="none"} />}
+                    <p style={{ color:dark?"#ddd":"#333", fontSize:"14px", lineHeight:1.7, margin:"0 0 12px" }}>{q.question_text||q.text}</p>
+                    <div style={{ display:"flex", flexDirection:"column", gap:"6px" }}>
+                      {opts.map((opt, oi) => {
+                        if (!opt) return null;
+                        const letter = letters[oi];
+                        const isUserAns = ua !== undefined && String(ua).toLowerCase().trim() === letter;
+                        const isCorrectAns = String(correct).toLowerCase().trim() === letter;
+                        let bg = "transparent", bc = "rgba(255,255,255,0.06)", col = "#666";
+                        if (isCorrectAns) { bg = "rgba(74,222,128,0.1)"; bc = "rgba(74,222,128,0.4)"; col = "#4ade80"; }
+                        if (isUserAns && !isCorrectAns) { bg = "rgba(255,100,100,0.08)"; bc = "rgba(255,100,100,0.4)"; col = "#ff6b6b"; }
+                        return (
+                          <div key={oi} style={{ display:"flex", alignItems:"center", gap:"10px", padding:"8px 12px", borderRadius:"7px", background:bg, border:`1px solid ${bc}` }}>
+                            <span style={{ width:22, height:22, borderRadius:"50%", background:isCorrectAns?"rgba(74,222,128,0.2)":isUserAns?"rgba(255,100,100,0.2)":"rgba(255,255,255,0.06)", display:"flex", alignItems:"center", justifyContent:"center", color:col, fontSize:"11px", fontWeight:800, flexShrink:0 }}>{letter.toUpperCase()}</span>
+                            <span style={{ color:col, fontSize:"13px", flex:1 }}>{opt}</span>
+                            {isCorrectAns && <span style={{ color:"#4ade80", fontSize:"11px", fontWeight:700 }}>✓ Correct</span>}
+                            {isUserAns && !isCorrectAns && <span style={{ color:"#ff6b6b", fontSize:"11px", fontWeight:700 }}>Your answer</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {q.explanation && (
+                      <div style={{ marginTop:"10px", background:"rgba(255,215,0,0.06)", border:"1px solid rgba(255,215,0,0.15)", borderRadius:"7px", padding:"10px 12px" }}>
+                        <span style={{ color:"#FFD700", fontSize:"11px", fontWeight:700 }}>💡 EXPLANATION</span>
+                        <p style={{ color:"#aaa", fontSize:"13px", margin:"4px 0 0", lineHeight:1.6 }}>{q.explanation}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardPage({ user, setPage, setActiveTest, setActiveExam }) {
   const dark = useTheme();
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedAttempt, setSelectedAttempt] = useState(null);
+  const [showScorecard, setShowScorecard] = useState(false);
 
-  useEffect(() => {
+  const loadAttempts = () => {
     if (!user) return;
-    supabaseRequest(`/attempts?user_id=eq.${user.id}&select=*,tests(name),score,total_marks,created_at&order=created_at.desc&limit=10`, { token: user.token })
+    supabaseRequest(`/attempts?user_id=eq.${user.id}&select=*,tests(name,id)&order=created_at.desc&limit=50`, { token: user.token })
       .then(data => { setAttempts(data || []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [user]);
+  };
+
+  useEffect(() => { loadAttempts(); }, [user]);
 
   if (!user) return null;
 
   const totalAttempts = attempts.length;
   const avgScore = attempts.length ? Math.round(attempts.reduce((s,a) => s + (a.score/a.total_marks*100), 0) / attempts.length) : 0;
 
+  const handleReattempt = (a) => {
+    const testId = a.test_id || a.tests?.id;
+    if (!testId) { setPage("exams"); return; }
+    setActiveTest({
+      name: a.tests?.name || "Test",
+      test_id: testId,
+      duration: a.duration_minutes || 90,
+      limit: a.total_marks,
+      negative_value: a.negative_value || 0.33,
+    });
+    setShowScorecard(false);
+    setPage("exam-interface");
+  };
+
   return (
-    <div style={{ padding: "80px 1rem 60px", maxWidth: "1100px", margin: "0 auto" }}>
-      <div style={{ marginBottom: "28px" }}>
-        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "clamp(1.5rem,4vw,2.2rem)", margin: 0 }}>
-          Welcome back 👋
-        </h1>
-        <p style={{ color: dark ? "#666" : "#888", fontSize: "14px", marginTop: "4px" }}>{user.email}</p>
+    <div style={{ padding:"80px 1rem 60px", maxWidth:"1100px", margin:"0 auto" }}>
+      {showScorecard && selectedAttempt && (
+        <ScorecardModal
+          attempt={selectedAttempt}
+          dark={dark}
+          onClose={() => setShowScorecard(false)}
+          onReattempt={() => handleReattempt(selectedAttempt)}
+        />
+      )}
+
+      <div style={{ marginBottom:"28px" }}>
+        <h1 style={{ color:dark?"#fff":"#111", fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:"clamp(1.5rem,4vw,2.2rem)", margin:0 }}>Welcome back 👋</h1>
+        <p style={{ color:dark?"#666":"#888", fontSize:"14px", marginTop:"4px" }}>{user.email}</p>
       </div>
 
       {/* Stats */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "16px", marginBottom: "32px"
-      }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:"16px", marginBottom:"32px" }}>
         {[
           ["📝 Tests Taken", totalAttempts, "#FFD700"],
           ["🎯 Avg Score", totalAttempts ? `${avgScore}%` : "—", "#4ade80"],
-          ["✅ Best Score", attempts.length ? `${Math.max(...attempts.map(a => Math.round(a.score/a.total_marks*100)))}%` : "—", "#818cf8"],
-          ["📅 This Month", attempts.filter(a => new Date(a.created_at).getMonth() === new Date().getMonth()).length, "#fb923c"],
+          ["✅ Best Score", attempts.length ? `${Math.max(...attempts.map(a=>Math.round(a.score/a.total_marks*100)))}%` : "—", "#818cf8"],
+          ["📅 This Month", attempts.filter(a=>new Date(a.created_at).getMonth()===new Date().getMonth()).length, "#fb923c"],
         ].map(([l,v,c]) => (
-          <div key={l} style={{
-            background: dark ? "rgba(255,255,255,0.04)" : "#fff",
-            border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-            borderRadius: "14px", padding: "20px",
-            boxShadow: dark ? "none" : "0 2px 8px rgba(0,0,0,0.05)"
-          }}>
-            <div style={{ color: dark ? "#666" : "#888", fontSize: "12px", marginBottom: "8px" }}>{l}</div>
-            <div style={{ color: c, fontSize: "1.8rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>{v}</div>
+          <div key={l} style={{ background:dark?"rgba(255,255,255,0.04)":"#fff", border:dark?"1px solid rgba(255,255,255,0.08)":"1px solid rgba(0,0,0,0.08)", borderRadius:"14px", padding:"20px", boxShadow:dark?"none":"0 2px 8px rgba(0,0,0,0.05)" }}>
+            <div style={{ color:dark?"#666":"#888", fontSize:"12px", marginBottom:"8px" }}>{l}</div>
+            <div style={{ color:c, fontSize:"1.8rem", fontWeight:900, fontFamily:"'Sora',sans-serif" }}>{v}</div>
           </div>
         ))}
       </div>
 
       {/* Quick Actions */}
-      <div style={{ marginBottom: "32px" }}>
-        <h2 style={{ color: dark ? "#aaa" : "#888", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Quick Actions</h2>
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button onClick={() => setPage("exams")} style={{
-            background: "linear-gradient(135deg, #FFD700, #FF8C00)",
-            border: "none", color: "#000", padding: "12px 24px",
-            borderRadius: "10px", cursor: "pointer", fontSize: "14px", fontWeight: 700
-          }}>Browse Exams →</button>
-          <button onClick={() => { 
-            setTimeout(() => {
-              const el = document.getElementById("recent-attempts"); 
-              if(el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-            }, 100);
-          }} style={{
-            background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
-            color: dark ? "#fff" : "#333", padding: "12px 24px", borderRadius: "10px", cursor: "pointer", fontSize: "14px"
-          }}>View Results ↓</button>
+      <div style={{ marginBottom:"32px" }}>
+        <h2 style={{ color:dark?"#aaa":"#888", fontSize:"14px", letterSpacing:"1px", textTransform:"uppercase", marginBottom:"12px" }}>Quick Actions</h2>
+        <div style={{ display:"flex", gap:"12px", flexWrap:"wrap" }}>
+          <button onClick={() => setPage("exams")} style={{ background:"linear-gradient(135deg,#FFD700,#FF8C00)", border:"none", color:"#000", padding:"12px 24px", borderRadius:"10px", cursor:"pointer", fontSize:"14px", fontWeight:700 }}>Browse Exams →</button>
         </div>
       </div>
 
-      {/* Recent Attempts */}
+      {/* Attempts */}
       <div>
-        <h2 id="recent-attempts" style={{ color: dark ? "#aaa" : "#888", fontSize: "14px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Recent Attempts</h2>
+        <h2 id="recent-attempts" style={{ color:dark?"#aaa":"#888", fontSize:"14px", letterSpacing:"1px", textTransform:"uppercase", marginBottom:"12px" }}>Test History ({attempts.length})</h2>
         {loading ? (
-          <div style={{ color: "#666", padding: "20px 0" }}>Loading...</div>
+          <div style={{ color:"#666", padding:"20px 0" }}>Loading...</div>
         ) : attempts.length === 0 ? (
-          <div style={{
-            background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-            border: dark ? "1px dashed rgba(255,255,255,0.1)" : "1px dashed rgba(0,0,0,0.12)",
-            borderRadius: "16px", padding: "40px", textAlign: "center"
-          }}>
-            <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📚</div>
-            <p style={{ color: "#666" }}>No tests taken yet. Start your first test!</p>
-            <button onClick={() => setPage("exams")} style={{
-              marginTop: "16px", background: "rgba(255,215,0,0.1)",
-              border: "1px solid rgba(255,215,0,0.4)", color: dark ? "#FFD700" : "#92600A",
-              padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontSize: "14px"
-            }}>Browse Exams</button>
+          <div style={{ background:dark?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.02)", border:dark?"1px dashed rgba(255,255,255,0.1)":"1px dashed rgba(0,0,0,0.12)", borderRadius:"16px", padding:"40px", textAlign:"center" }}>
+            <div style={{ fontSize:"3rem", marginBottom:"12px" }}>📚</div>
+            <p style={{ color:"#666" }}>No tests taken yet. Start your first test!</p>
+            <button onClick={() => setPage("exams")} style={{ marginTop:"16px", background:"rgba(255,215,0,0.1)", border:"1px solid rgba(255,215,0,0.4)", color:dark?"#FFD700":"#92600A", padding:"10px 24px", borderRadius:"8px", cursor:"pointer", fontSize:"14px" }}>Browse Exams</button>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {attempts.map((a, i) => (
-              <div key={i} style={{
-                background: dark ? "rgba(255,255,255,0.04)" : "#fff",
-                border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-                borderRadius: "12px", padding: "16px 20px",
-                display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px"
-              }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "15px", marginBottom: "4px" }}>{a.tests?.name || "Test"}</div>
-                  <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
-                    <span style={{ color: "#4ade80", fontSize: "12px" }}>✓ {a.correct_count || 0} correct</span>
-                    <span style={{ color: "#ff6b6b", fontSize: "12px" }}>✗ {a.wrong_count || 0} wrong</span>
-                    <span style={{ color: "#666", fontSize: "12px" }}>— {a.unattempted_count || 0} skipped</span>
-                    <span style={{ color: "#555", fontSize: "12px" }}>⏱ {a.time_taken_seconds ? Math.floor(a.time_taken_seconds/60)+"m "+( a.time_taken_seconds%60)+"s" : "—"}</span>
-                    <span style={{ color: "#444", fontSize: "12px" }}>{new Date(a.created_at).toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" })}</span>
+          <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
+            {attempts.map((a, i) => {
+              const pct = a.total_marks > 0 ? Math.round((a.score/a.total_marks)*100) : 0;
+              const pctColor = pct>=60?"#4ade80":pct>=40?"#fb923c":"#ff6b6b";
+              const mm = Math.floor((a.time_taken_seconds||0)/60), ss = String((a.time_taken_seconds||0)%60).padStart(2,"0");
+              return (
+                <div key={i} style={{ background:dark?"rgba(255,255,255,0.04)":"#fff", border:dark?"1px solid rgba(255,255,255,0.08)":"1px solid rgba(0,0,0,0.08)", borderRadius:"14px", padding:"16px 20px", boxShadow:dark?"none":"0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:"12px" }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ color:dark?"#fff":"#111", fontWeight:700, fontSize:"15px", marginBottom:"6px" }}>{a.tests?.name || "Test"}</div>
+                      <div style={{ display:"flex", gap:"10px", flexWrap:"wrap" }}>
+                        <span style={{ color:"#4ade80", fontSize:"12px" }}>✓ {a.correct_count||0}</span>
+                        <span style={{ color:"#ff6b6b", fontSize:"12px" }}>✗ {a.wrong_count||0}</span>
+                        <span style={{ color:"#818cf8", fontSize:"12px" }}>— {a.unattempted_count||0}</span>
+                        <span style={{ color:"#666", fontSize:"12px" }}>⏱ {mm}m {ss}s</span>
+                        <span style={{ color:"#444", fontSize:"12px" }}>{new Date(a.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</span>
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:"14px", flexShrink:0, flexWrap:"wrap" }}>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ color:pctColor, fontWeight:900, fontSize:"22px", fontFamily:"'Sora',sans-serif", lineHeight:1 }}>{pct}%</div>
+                        <div style={{ color:"#666", fontSize:"12px" }}>{a.score}/{a.total_marks}</div>
+                      </div>
+                      <div style={{ display:"flex", gap:"6px", flexWrap:"wrap" }}>
+                        <button onClick={() => { setSelectedAttempt(a); setShowScorecard(true); }}
+                          style={{ background:"rgba(255,215,0,0.1)", border:"1px solid rgba(255,215,0,0.3)", color:dark?"#FFD700":"#92600A", padding:"7px 14px", borderRadius:"7px", cursor:"pointer", fontSize:"12px", fontWeight:700 }}>📊 Scorecard</button>
+                        <button onClick={() => handleReattempt(a)}
+                          style={{ background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.3)", color:"#4ade80", padding:"7px 14px", borderRadius:"7px", cursor:"pointer", fontSize:"12px", fontWeight:700 }}>🔄 Reattempt</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  {(() => { const pct = a.total_marks > 0 ? Math.round((a.score/a.total_marks)*100) : 0; return (
-                    <>
-                      <div style={{ color: pct>=60?"#4ade80":pct>=40?"#fb923c":"#ff6b6b", fontWeight: 900, fontSize: "22px", fontFamily:"'Sora',sans-serif" }}>{pct}%</div>
-                      <div style={{ color: "#666", fontSize: "12px" }}>{a.score}/{a.total_marks} marks</div>
-                    </>
-                  ); })()}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1475,8 +1737,9 @@ function DashboardPage({ user, setPage }) {
   );
 }
 
+
 // SECURE EXAM INTERFACE — Advanced
-function ExamInterface({ setPage, activeTest }) {
+function ExamInterface({ setPage, activeTest, setDark }) {
   const dark = useTheme();
   const { user } = useAuth();
   const testName = activeTest?.name || "Mock Test";
@@ -1633,6 +1896,17 @@ function ExamInterface({ setPage, activeTest }) {
           String(answers[q.id]).toLowerCase().trim() !== String(q.correct).toLowerCase().trim()
         ).length;
         const unattemptedCount = questions.filter(q => answers[q.id] === undefined).length;
+        // Build per-subject breakdown
+        const subjectMap = {};
+        questions.forEach(q => {
+          const s = q.subject || "General";
+          if (!subjectMap[s]) subjectMap[s] = { correct: 0, wrong: 0, skipped: 0, total: 0, score: 0 };
+          subjectMap[s].total++;
+          const ua = answers[q.id];
+          if (ua === undefined) { subjectMap[s].skipped++; }
+          else if (String(ua).toLowerCase().trim() === String(q.correct).toLowerCase().trim()) { subjectMap[s].correct++; subjectMap[s].score += q.marks; }
+          else { subjectMap[s].wrong++; subjectMap[s].score -= q.negative; }
+        });
         await supabaseRequest("/attempts", {
           method: "POST",
           body: {
@@ -1646,6 +1920,8 @@ function ExamInterface({ setPage, activeTest }) {
             time_taken_seconds: DURATION - timeLeft,
             status: "completed",
             submitted_at: new Date().toISOString(),
+            answers_snapshot: JSON.stringify(answers),
+            subject_scores: JSON.stringify(subjectMap),
           },
           token: user.token,
           prefer: "return=minimal",
@@ -1813,7 +2089,7 @@ function ExamInterface({ setPage, activeTest }) {
     const totalMarks = questions.reduce((s, q) => s + q.marks, 0);
     const pct = totalMarks > 0 ? Math.round(score / totalMarks * 100) : 0;
     const isNegativeScore = score < 0;
-    const correct = questions.filter(q => answers[q.id] === q.correct).length;
+    const correct = questions.filter(q => answers[q.id] !== undefined && String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim()).length;
     const wrong = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== q.correct).length;
     const skippedQ = TOTAL - correct - wrong;
     const timeTaken = DURATION - timeLeft;
@@ -1825,7 +2101,7 @@ function ExamInterface({ setPage, activeTest }) {
       const s = q.subject || "General";
       if (!subjects[s]) subjects[s] = { correct: 0, wrong: 0, skipped: 0, total: 0, marks: 0 };
       subjects[s].total++;
-      if (answers[q.id] === q.correct) { subjects[s].correct++; subjects[s].marks += q.marks; }
+      if (answers[q.id] !== undefined && String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim()) { subjects[s].correct++; subjects[s].marks += q.marks; }
       else if (answers[q.id] !== undefined) { subjects[s].wrong++; subjects[s].marks -= q.negative; }
       else subjects[s].skipped++;
     });
@@ -1839,7 +2115,7 @@ function ExamInterface({ setPage, activeTest }) {
     const resultTabs = ["overview", "solutions"];
 
     return (
-      <div style={{ minHeight: "100vh", background: dark ? "#080a14" : "#f5f6fa", padding: "20px 1rem 60px" }}>
+      <div style={{ minHeight: "100vh", background: T.examBg(dark), padding: "20px 1rem 60px" }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}`}</style>
         <div style={{ maxWidth: "800px", margin: "0 auto" }}>
 
@@ -1993,7 +2269,7 @@ function ExamInterface({ setPage, activeTest }) {
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {questions.map((q, i) => {
                   const userAns = answers[q.id];
-                  const isCorrect = userAns === q.correct;
+                  const isCorrect = userAns !== undefined && String(userAns).toLowerCase().trim() === String(q.correct).toLowerCase().trim();
                   const isWrong = userAns !== undefined && !isCorrect;
                   const isSkipped = userAns === undefined;
                   const statusC = isCorrect ? "#4ade80" : isWrong ? "#ff6b6b" : "#818cf8";
@@ -2016,13 +2292,14 @@ function ExamInterface({ setPage, activeTest }) {
                           <div style={{ paddingTop: "14px", marginBottom: "12px", color: dark ? "#ccc" : "#333", fontSize: "14px", lineHeight: 1.7 }}>{q.text}</div>
                           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
                             {q.options.map((opt, idx) => {
-                              const isUserChoice = userAns === idx;
-                              const isCorrectOpt = q.correct === idx;
-                              let bg = "rgba(255,255,255,0.04)";
-                              let border = "1px solid rgba(255,255,255,0.08)";
-                              let col = "#aaa";
-                              if (isCorrectOpt) { bg = "rgba(74,222,128,0.12)"; border = "1px solid rgba(74,222,128,0.4)"; col = "#4ade80"; }
-                              if (isUserChoice && !isCorrectOpt) { bg = "rgba(255,100,100,0.1)"; border = "1px solid rgba(255,100,100,0.4)"; col = "#ff6b6b"; }
+                              // q.correct is "a"/"b"/"c"/"d", idx is 0/1/2/3 — convert
+                              const idxLetter = ["a","b","c","d"][idx];
+                              const isUserChoice = String(userAns).toLowerCase().trim() === idxLetter;
+                              const isCorrectOpt = String(q.correct).toLowerCase().trim() === idxLetter;
+                              const defTheme = T.optDefault(dark);
+                              let bg = defTheme.bg, border = `1px solid ${defTheme.border}`, col = defTheme.text;
+                              if (isCorrectOpt) { const t = T.optCorrect(dark); bg = t.bg; border = `1px solid ${t.border}`; col = t.text; }
+                              if (isUserChoice && !isCorrectOpt) { const t = T.optWrong(dark); bg = t.bg; border = `1px solid ${t.border}`; col = t.text; }
                               return (
                                 <div key={idx} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", borderRadius: "8px", background: bg, border }}>
                                   <span style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: col, fontSize: "11px", fontWeight: 700, flexShrink: 0 }}>{["A","B","C","D"][idx]}</span>
@@ -2067,16 +2344,16 @@ function ExamInterface({ setPage, activeTest }) {
   const QuestionPalette = ({ onClose }) => (
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-        <div style={{ color: dark ? "#fff" : "#111", fontSize: "14px", fontWeight: 700 }}>Question Palette</div>
+        <div style={{ color: T.primary(dark), fontSize: "14px", fontWeight: 700 }}>Question Palette</div>
         {onClose && <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#aaa", fontSize: "20px", cursor: "pointer", lineHeight: 1 }}>×</button>}
       </div>
       {/* Legend */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "14px", fontSize: "11px" }}>
         {[
-          { c: "#4ade80", l: `Answered (${answered})` },
-          { c: "#ff6b6b", l: `Skipped (${skipped})` },
-          { c: "#fb923c", l: `Marked (${markedCount})` },
-          { c: "#555", l: `Not visited` },
+          { c: T.green(dark), l: `Answered (${answered})` },
+          { c: T.red(dark), l: `Skipped (${skipped})` },
+          { c: T.orange(dark), l: `Marked (${markedCount})` },
+          { c: T.muted(dark), l: `Not visited` },
         ].map(({ c, l }) => (
           <div key={l} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
             <div style={{ width: 10, height: 10, borderRadius: "2px", background: c + "44", border: `1px solid ${c}88`, flexShrink: 0 }} />
@@ -2117,7 +2394,7 @@ function ExamInterface({ setPage, activeTest }) {
       {/* Stats */}
       <div style={{ marginTop: "14px", padding: "10px", background: "rgba(255,255,255,0.03)", borderRadius: "8px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", color: "#555", fontSize: "12px", marginBottom: "6px" }}>
-          <span>Total Questions</span><span style={{ color: "#aaa" }}>{TOTAL}</span>
+          <span>Total Questions</span><span style={{ color: T.secondary(dark) }}>{TOTAL}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", color: "#555", fontSize: "12px", marginBottom: "6px" }}>
           <span>Attempted</span><span style={{ color: "#4ade80" }}>{answered}</span>
@@ -2136,7 +2413,7 @@ function ExamInterface({ setPage, activeTest }) {
   );
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#080a14", userSelect: "none", overflow: "hidden" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: T.examBg(dark), userSelect: "none", overflow: "hidden", transition: "background 0.3s" }}>
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -2160,7 +2437,7 @@ function ExamInterface({ setPage, activeTest }) {
       }}>
         {/* Left: Test name */}
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="exam-topbar-title" style={{ color: dark ? "#fff" : "#111", fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
+          <div className="exam-topbar-title" style={{ color: T.primary(dark), fontWeight: 700, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{testName}</div>
           <div style={{ color: dark ? "#555" : "#888", fontSize: "11px" }}>Q{current+1}/{TOTAL} • {answered} answered</div>
         </div>
 
@@ -2174,11 +2451,18 @@ function ExamInterface({ setPage, activeTest }) {
           animation: isRed ? "pulse 1s infinite" : "none"
         }}>{mm}:{ss}</div>
 
-        {/* Right: Mobile palette btn + Submit */}
-        <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+        {/* Right: theme toggle + palette + submit */}
+        <div style={{ display: "flex", gap: "8px", flexShrink: 0, alignItems: "center" }}>
+          <button onClick={() => setDark(d => !d)} title={dark ? "Switch to Light Mode" : "Switch to Dark Mode"} style={{
+            background: dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)",
+            border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.15)",
+            color: dark ? "#FFD700" : "#555", padding: "7px 10px", borderRadius: "8px",
+            cursor: "pointer", fontSize: "15px", lineHeight: 1
+          }}>{dark ? "☀️" : "🌙"}</button>
           <button onClick={() => setShowPalette(true)} className="palette-btn-mobile" style={{
-            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-            color: "#aaa", padding: "7px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "13px"
+            background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+            border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.15)",
+            color: dark ? "#aaa" : "#555", padding: "7px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "13px"
           }}>📋</button>
           <button onClick={handleSubmit} style={{
             background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none",
@@ -2191,8 +2475,8 @@ function ExamInterface({ setPage, activeTest }) {
       {/* Section Tabs — shown only when test has sections */}
       {sections.length > 0 && (
         <div style={{
-          background: dark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.04)",
-          borderBottom: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.1)",
+          background: dark ? "rgba(0,0,0,0.4)" : "rgba(220,224,235,0.8)",
+          borderBottom: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.15)",
           display: "flex", overflowX: "auto", flexShrink: 0, padding: "0 8px",
           gap: "2px", alignItems: "stretch", scrollbarWidth: "none"
         }} className="custom-scroll section-tabs-bar">
@@ -2240,7 +2524,7 @@ function ExamInterface({ setPage, activeTest }) {
           {/* Question header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: dark ? "#FFD700" : "#92600A", padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>Q {current+1}</span>
+              <span style={{ background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: T.gold(dark), padding: "3px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>Q {current+1}</span>
               {(() => {
                 const secIdx = getQuestionSection(q, current);
                 if (secIdx !== null && sections[secIdx]) {
@@ -2251,8 +2535,8 @@ function ExamInterface({ setPage, activeTest }) {
                 return null;
               })()}
               <span style={{ background: "rgba(255,255,255,0.06)", color: "#888", padding: "3px 10px", borderRadius: "6px", fontSize: "12px" }}>{q.subject}</span>
-              <span style={{ color: "#4ade80", fontSize: "12px", fontWeight: 700 }}>+{q.marks}</span>
-              <span style={{ color: "#ff6b6b", fontSize: "12px", fontWeight: 700 }}>-{q.negative}</span>
+              <span style={{ color: T.green(dark), fontSize: "12px", fontWeight: 700 }}>+{q.marks}</span>
+              <span style={{ color: T.red(dark), fontSize: "12px", fontWeight: 700 }}>-{q.negative}</span>
             </div>
             <button
               onClick={() => setMarked(prev => ({ ...prev, [q.id]: !prev[q.id] }))}
@@ -2266,30 +2550,31 @@ function ExamInterface({ setPage, activeTest }) {
           </div>
 
           {/* Question card */}
-          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "clamp(16px,3vw,28px)", marginBottom: "14px" }}>
-            <p style={{ color: dark ? "#fff" : "#111", fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.8, margin: 0, fontWeight: 500 }}>{q.text}</p>
+          <div style={{ background: T.cardBg(dark), border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)", borderRadius: "16px", padding: "clamp(16px,3vw,28px)", marginBottom: "14px" }}>
+            <p style={{ color: T.primary(dark), fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.8, margin: 0, fontWeight: 500 }}>{q.text}</p>
           </div>
 
           {/* Options */}
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
             {q.options.map((opt, idx) => {
               const selected = answers[q.id] === idx;
+              const ot = selected ? T.optSelected(dark) : T.optDefault(dark);
               return (
                 <button key={idx} onClick={() => setAnswers(prev => ({ ...prev, [q.id]: idx }))} style={{
-                  background: selected ? "rgba(255,215,0,0.12)" : (dark ? "rgba(255,255,255,0.04)" : "#fafafa"),
-                  border: selected ? "2px solid rgba(255,215,0,0.6)" : (dark ? "1px solid rgba(255,255,255,0.09)" : "1px solid rgba(0,0,0,0.1)"),
-                  color: selected ? "#E6A800" : (dark ? "#ddd" : "#222"),
+                  background: ot.bg,
+                  border: `${selected ? "2px" : "1px"} solid ${ot.border}`,
+                  color: ot.text,
                   padding: "clamp(12px,2vw,16px) clamp(14px,2vw,20px)",
                   borderRadius: "12px", cursor: "pointer", textAlign: "left",
                   fontSize: "clamp(14px,2vw,16px)", transition: "all 0.15s",
                   display: "flex", alignItems: "center", gap: "14px",
-                  boxShadow: selected ? "0 0 0 1px rgba(255,215,0,0.15)" : "none"
+                  boxShadow: selected ? `0 0 0 1px ${ot.border}33` : "none"
                 }}>
                   <span style={{
                     width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                    background: selected ? "#FFD700" : "rgba(255,255,255,0.08)",
+                    background: selected ? (dark ? "#818cf8" : "#4338ca") : (dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"),
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    color: selected ? "#000" : "#777", fontSize: "13px", fontWeight: 800,
+                    color: selected ? "#fff" : T.muted(dark), fontSize: "13px", fontWeight: 800,
                     transition: "all 0.15s"
                   }}>{["A","B","C","D"][idx]}</span>
                   <span style={{ lineHeight: 1.5 }}>{opt}</span>
@@ -2307,8 +2592,8 @@ function ExamInterface({ setPage, activeTest }) {
                       setCurrent(prev !== undefined ? prev : Math.max(0, current-1));
                     } else { setCurrent(c => Math.max(0, c-1)); }
                   }} disabled={current===0} style={{
-              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
-              color: current===0 ? (dark ? "#333" : "#bbb") : (dark ? "#fff" : "#111"), padding: "11px 22px",
+              background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
+              color: current===0 ? T.muted(dark) : T.primary(dark), padding: "11px 22px",
               borderRadius: "9px", cursor: current===0 ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: 600
             }}>← Prev</button>
 
@@ -2348,8 +2633,8 @@ function ExamInterface({ setPage, activeTest }) {
         {/* Desktop Sidebar */}
         <div className="exam-sidebar custom-scroll" style={{
           width: "250px", flexShrink: 0, display: "flex", flexDirection: "column",
-          background: dark ? "rgba(255,255,255,0.03)" : "#fff",
-          border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+          background: T.sidebarBg(dark),
+          border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)",
           borderRadius: "16px", overflowY: "auto",
           boxShadow: dark ? "none" : "0 2px 10px rgba(0,0,0,0.06)"
         }}>
@@ -2682,8 +2967,16 @@ function AdminExams({ user }) {
   };
 
   const deleteTest = async (testId, examId) => {
-    if (!confirm("Delete this test?")) return;
-    await supabaseRequest(`/tests?id=eq.${testId}`, { method: "DELETE", token: user.token });
+    if (!confirm("Delete this test and ALL its questions + attempts? This cannot be undone.")) return;
+    try {
+      await supabaseRequest(`/attempts?test_id=eq.${testId}`, { method: "DELETE", token: user.token, prefer: "return=minimal" });
+    } catch(e) {}
+    try {
+      await supabaseRequest(`/questions?test_id=eq.${testId}`, { method: "DELETE", token: user.token, prefer: "return=minimal" });
+    } catch(e) {}
+    try {
+      await supabaseRequest(`/tests?id=eq.${testId}`, { method: "DELETE", token: user.token, prefer: "return=minimal" });
+    } catch(e) { alert("Delete failed: " + e.message); return; }
     loadTests(examId);
   };
 
@@ -3256,7 +3549,7 @@ function AdminExams({ user }) {
 
 
 // ADMIN USERS COMPONENT - Advanced
-function AdminUsers({ user }) {
+function AdminUsers({ user: adminUser }) {
   const dark = useTheme();
   const [users, setUsers] = useState([]);
   const [attempts, setAttempts] = useState([]);
@@ -3265,62 +3558,126 @@ function AdminUsers({ user }) {
   const [expandedUser, setExpandedUser] = useState(null);
   const [userAttempts, setUserAttempts] = useState({});
   const [loadingAttempts, setLoadingAttempts] = useState({});
+  const [msg, setMsg] = useState("");
+  const [actionLoading, setActionLoading] = useState({});
+
   const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" };
 
-  useEffect(() => {
+  const loadUsers = () => {
+    setLoading(true);
     Promise.all([
-      supabaseRequest("/profiles?select=*&order=created_at.desc&limit=500", { token: user.token }).catch(() => []),
-      supabaseRequest("/attempts?select=user_id,created_at&order=created_at.desc", { token: user.token }).catch(() => []),
-    ]).then(([profileData, attemptData]) => {
+      supabaseRequest("/profiles?select=*&order=created_at.desc&limit=500", { token: adminUser.token }).catch(() => []),
+      supabaseRequest("/attempts?select=user_id,created_at&order=created_at.desc", { token: adminUser.token }).catch(() => []),
+      supabaseRequest("/roles?select=user_id,role", { token: adminUser.token }).catch(() => []),
+    ]).then(([profileData, attemptData, rolesData]) => {
       const attemptCounts = {};
       (attemptData || []).forEach(a => { attemptCounts[a.user_id] = (attemptCounts[a.user_id] || 0) + 1; });
-      let enriched = (profileData || []).map(u => ({ ...u, attempt_count: attemptCounts[u.id] || 0 }));
-      // Fallback: if profiles table is empty/blocked, build user list from attempts
+      const adminSet = new Set((rolesData || []).filter(r => r.role === "admin").map(r => r.user_id));
+      let enriched = (profileData || []).map(u => ({ ...u, attempt_count: attemptCounts[u.id] || 0, isAdmin: adminSet.has(u.id) }));
       if (enriched.length === 0 && Object.keys(attemptCounts).length > 0) {
-        enriched = Object.keys(attemptCounts).map(uid => ({
-          id: uid, full_name: null, phone: null, state: null,
-          target_exam: null, created_at: null,
-          attempt_count: attemptCounts[uid]
-        }));
+        enriched = Object.keys(attemptCounts).map(uid => ({ id: uid, full_name: null, phone: null, state: null, target_exam: null, created_at: null, attempt_count: attemptCounts[uid], isAdmin: adminSet.has(uid) }));
       }
       setUsers(enriched);
       setAttempts(attemptData || []);
       setLoading(false);
-    }).catch(() => { setLoading(false); });
-  }, []);
+    }).catch(() => setLoading(false));
+  };
+
+  useEffect(() => { loadUsers(); }, []);
 
   const loadUserAttempts = async (uid) => {
-    if (userAttempts[uid]) { setExpandedUser(expandedUser === uid ? null : uid); return; }
+    // If already expanded, just toggle closed
+    if (expandedUser === uid) { setExpandedUser(null); return; }
     setLoadingAttempts(p => ({...p, [uid]: true}));
     setExpandedUser(uid);
     try {
-      const data = await supabaseRequest(`/attempts?user_id=eq.${uid}&select=*,tests(name)&order=created_at.desc&limit=20`, { token: user.token });
-      setUserAttempts(p => ({...p, [uid]: data || []}));
-    } catch(e) { setUserAttempts(p => ({...p, [uid]: []})); }
+      // Always fetch fresh from DB — never use stale cache
+      const data = await supabaseRequest(`/attempts?user_id=eq.${uid}&select=*,tests(name)&order=created_at.desc&limit=50`, { token: adminUser.token });
+      const fresh = data || [];
+      setUserAttempts(p => ({...p, [uid]: fresh}));
+      // Also sync the count shown on the card
+      setUsers(prev => prev.map(x => x.id === uid ? {...x, attempt_count: fresh.length} : x));
+    } catch { setUserAttempts(p => ({...p, [uid]: []})); }
     setLoadingAttempts(p => ({...p, [uid]: false}));
+  };
+
+  const setAction = (uid, val) => setActionLoading(p => ({...p, [uid]: val}));
+
+  const deleteUser = async (u) => {
+    if (!window.confirm(`Delete user "${u.full_name || u.id}"? This will delete their profile and all attempts. This cannot be undone.`)) return;
+    setAction(u.id, "deleting");
+    try {
+      // Delete attempts first
+      await supabaseRequest(`/attempts?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }).catch(() => {});
+      await supabaseRequest(`/profiles?id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }).catch(() => {});
+      await supabaseRequest(`/roles?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }).catch(() => {});
+      setMsg("✅ User deleted successfully.");
+      setUsers(prev => prev.filter(x => x.id !== u.id));
+    } catch(e) { setMsg("❌ Delete failed: " + e.message); }
+    setAction(u.id, null);
+  };
+
+  const deleteAttempts = async (u) => {
+    if (!window.confirm(`Delete ALL attempts for "${u.full_name || u.id}"? This cannot be undone.`)) return;
+    setAction(u.id, "clearing");
+    try {
+      await supabaseRequest(`/attempts?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" });
+      setMsg("✅ All attempts cleared.");
+      setUserAttempts(p => ({...p, [u.id]: []}));
+      setUsers(prev => prev.map(x => x.id === u.id ? {...x, attempt_count: 0} : x));
+    } catch(e) { setMsg("❌ " + e.message); }
+    setAction(u.id, null);
+  };
+
+  const toggleAdmin = async (u) => {
+    const making = !u.isAdmin;
+    if (!window.confirm(`${making ? "Grant admin access" : "Revoke admin access"} for "${u.full_name || u.id}"?`)) return;
+    setAction(u.id, "role");
+    try {
+      if (making) {
+        await supabaseRequest("/roles", { method: "POST", body: { user_id: u.id, role: "admin" }, token: adminUser.token });
+      } else {
+        await supabaseRequest(`/roles?user_id=eq.${u.id}&role=eq.admin`, { method: "DELETE", token: adminUser.token });
+      }
+      setMsg(`✅ ${making ? "Admin access granted." : "Admin access revoked."}`);
+      setUsers(prev => prev.map(x => x.id === u.id ? {...x, isAdmin: making} : x));
+    } catch(e) { setMsg("❌ " + e.message); }
+    setAction(u.id, null);
   };
 
   const filtered = users.filter(u =>
     (u.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (u.phone || "").includes(search) ||
-    u.id?.includes(search)
+    (u.id || "").includes(search)
   );
+
+  const btnS = (bg, col, border) => ({
+    background: bg, border, color: col,
+    padding: "5px 11px", borderRadius: "6px",
+    cursor: "pointer", fontSize: "11px", fontWeight: 700,
+    whiteSpace: "nowrap"
+  });
 
   return (
     <div style={{ maxWidth: "1000px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
-        <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Users & Attempts</h1>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <div style={{ background: "rgba(129,140,248,0.15)", border: "1px solid rgba(129,140,248,0.3)", color: "#818cf8", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>
-            👥 {users.length} Users
-          </div>
-          <div style={{ background: "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>
-            📝 {attempts.length} Total Attempts
-          </div>
+        <div>
+          <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0 }}>Users & Management</h1>
+          <p style={{ color: "#555", fontSize: "13px", marginTop: "4px" }}>Delete users, clear attempts, toggle admin roles</p>
+        </div>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div style={{ background: "rgba(129,140,248,0.15)", border: "1px solid rgba(129,140,248,0.3)", color: "#818cf8", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>👥 {users.length} Users</div>
+          <div style={{ background: "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>📝 {attempts.length} Attempts</div>
         </div>
       </div>
 
-      <input placeholder="Search by name, phone or ID..." value={search} onChange={e => setSearch(e.target.value)} style={inputS} />
+      {msg && (
+        <div onClick={() => setMsg("")} style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "13px", cursor: "pointer", padding: "10px 14px", background: msg.startsWith("✅") ? "rgba(74,222,128,0.08)" : "rgba(255,50,50,0.08)", borderRadius: "8px", border: msg.startsWith("✅") ? "1px solid rgba(74,222,128,0.25)" : "1px solid rgba(255,50,50,0.25)" }}>
+          {msg} <span style={{float:"right",opacity:0.5}}>✕ dismiss</span>
+        </div>
+      )}
+
+      <input placeholder="🔍 Search by name, phone or user ID..." value={search} onChange={e => setSearch(e.target.value)} style={inputS} />
 
       {loading ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
@@ -3329,85 +3686,125 @@ function AdminUsers({ user }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {filtered.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: "40px" }}>No users found.</div>}
-          {filtered.map(u => (
-            <div key={u.id} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "12px", overflow: "hidden" }}>
-              <div style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg,#818cf8,#6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#fff", fontSize: "16px", flexShrink: 0 }}>
-                    {(u.full_name || "U").charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{u.full_name || <span style={{color:"#555"}}>No name set</span>}</div>
-                    <div style={{ color: "#555", fontSize: "11px", display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
-                      {u.phone && <span>📞 {u.phone}</span>}
-                      {u.state && <span>📍 {u.state}</span>}
-                      {u.target_exam && <span>🎯 {u.target_exam}</span>}
-                      <span style={{ fontFamily: "monospace", color: "#444" }}>{u.id?.substring(0,12)}...</span>
+          {filtered.map(u => {
+            const isLoading = actionLoading[u.id];
+            const isSelf = u.id === adminUser.id;
+            return (
+              <div key={u.id} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "12px", overflow: "hidden", boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.05)" }}>
+                <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                  {/* Avatar + info */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.isAdmin ? "linear-gradient(135deg,#ff6b6b,#ff3333)" : "linear-gradient(135deg,#818cf8,#6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#fff", fontSize: "15px", flexShrink: 0 }}>
+                      {(u.full_name || "U").charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <span style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{u.full_name || <span style={{color:"#555"}}>No name</span>}</span>
+                        {u.isAdmin && <span style={{ background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", fontSize: "9px", fontWeight: 800, padding: "1px 6px", borderRadius: "10px", letterSpacing: "1px" }}>ADMIN</span>}
+                        {isSelf && <span style={{ background: "rgba(255,215,0,0.12)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", fontSize: "9px", fontWeight: 800, padding: "1px 6px", borderRadius: "10px" }}>YOU</span>}
+                      </div>
+                      <div style={{ color: "#555", fontSize: "11px", display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
+                        {u.phone && <span>📞 {u.phone}</span>}
+                        {u.state && <span>📍 {u.state}</span>}
+                        {u.target_exam && <span>🎯 {u.target_exam}</span>}
+                        <span style={{ fontFamily: "monospace", color: "#444", fontSize: "10px" }}>{u.id?.substring(0,12)}...</span>
+                        {u.created_at && <span>{new Date(u.created_at).toLocaleDateString("en-IN")}</span>}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ color: u.attempt_count > 0 ? "#4ade80" : "#555", fontWeight: 700, fontSize: "18px" }}>{u.attempt_count}</div>
-                    <div style={{ color: "#555", fontSize: "10px" }}>Attempts</div>
-                  </div>
-                  <div style={{ color: "#444", fontSize: "11px" }}>
-                    {u.created_at ? new Date(u.created_at).toLocaleDateString("en-IN") : ""}
-                  </div>
-                  <button onClick={() => loadUserAttempts(u.id)} style={{ background: u.attempt_count > 0 ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.05)", border: u.attempt_count > 0 ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,255,255,0.1)", color: u.attempt_count > 0 ? "#4ade80" : "#555", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>
-                    {expandedUser === u.id ? "▲ Hide" : `▼ View Attempts`}
-                  </button>
-                </div>
-              </div>
 
-              {expandedUser === u.id && (
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "12px 18px", background: "rgba(0,0,0,0.15)" }}>
-                  {loadingAttempts[u.id] ? (
-                    <div style={{ color: "#666", padding: "12px", fontSize: "13px" }}>Loading attempts...</div>
-                  ) : (userAttempts[u.id] || []).length === 0 ? (
-                    <div style={{ color: "#555", fontSize: "13px", padding: "12px" }}>No attempts recorded for this user.</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <div style={{ color: "#aaa", fontSize: "11px", fontWeight: 700, letterSpacing: "1px", marginBottom: "4px" }}>ATTEMPT HISTORY</div>
-                      {(userAttempts[u.id] || []).map((a, i) => {
-                        const pct = a.total_marks > 0 ? Math.round((a.score / a.total_marks) * 100) : 0;
-                        return (
-                          <div key={a.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                            <div>
-                              <div style={{ color: dark ? "#ddd" : "#222", fontSize: "13px", fontWeight: 600 }}>{a.tests?.name || "Unknown Test"}</div>
-                              <div style={{ color: "#555", fontSize: "11px" }}>{new Date(a.created_at).toLocaleString("en-IN")}</div>
-                            </div>
-                            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                              <div style={{ textAlign: "center" }}>
-                                <div style={{ color: "#4ade80", fontSize: "12px" }}>✓ {a.correct_count || 0}</div>
-                                <div style={{ color: "#555", fontSize: "10px" }}>Correct</div>
-                              </div>
-                              <div style={{ textAlign: "center" }}>
-                                <div style={{ color: "#ff6b6b", fontSize: "12px" }}>✗ {a.wrong_count || 0}</div>
-                                <div style={{ color: "#555", fontSize: "10px" }}>Wrong</div>
-                              </div>
-                              <div style={{ textAlign: "right" }}>
-                                <div style={{ color: pct >= 60 ? "#4ade80" : pct >= 40 ? "#fb923c" : "#ff6b6b", fontWeight: 700, fontSize: "16px" }}>{pct}%</div>
-                                <div style={{ color: "#555", fontSize: "11px" }}>{a.score}/{a.total_marks}</div>
-                              </div>
-                              <div style={{ background: a.status === "completed" ? "rgba(74,222,128,0.15)" : "rgba(251,146,60,0.15)", border: a.status === "completed" ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(251,146,60,0.3)", color: a.status === "completed" ? "#4ade80" : "#fb923c", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
-                                {a.status || "completed"}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                  {/* Actions */}
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+                    <div style={{ textAlign: "center", marginRight: "4px" }}>
+                      <div style={{ color: u.attempt_count > 0 ? "#4ade80" : "#555", fontWeight: 700, fontSize: "18px", lineHeight: 1 }}>{u.attempt_count}</div>
+                      <div style={{ color: "#555", fontSize: "9px", textTransform: "uppercase" }}>Attempts</div>
                     </div>
-                  )}
+
+                    {/* View Attempts */}
+                    <button onClick={() => loadUserAttempts(u.id)}
+                      style={btnS("rgba(74,222,128,0.1)", "#4ade80", "1px solid rgba(74,222,128,0.3)")}>
+                      {expandedUser === u.id ? "▲ Hide" : "▼ History"}
+                    </button>
+
+                    {/* Clear Attempts */}
+                    {u.attempt_count > 0 && (
+                      <button onClick={() => deleteAttempts(u)} disabled={!!isLoading}
+                        style={btnS("rgba(251,146,60,0.1)", "#fb923c", "1px solid rgba(251,146,60,0.3)")}>
+                        {isLoading === "clearing" ? "..." : "🗑 Attempts"}
+                      </button>
+                    )}
+
+                    {/* Toggle Admin — can't revoke your own admin */}
+                    {!isSelf && (
+                      <button onClick={() => toggleAdmin(u)} disabled={!!isLoading}
+                        style={btnS(u.isAdmin ? "rgba(255,50,50,0.1)" : "rgba(129,140,248,0.1)", u.isAdmin ? "#ff6b6b" : "#818cf8", u.isAdmin ? "1px solid rgba(255,50,50,0.3)" : "1px solid rgba(129,140,248,0.3)")}>
+                        {isLoading === "role" ? "..." : u.isAdmin ? "⬇ Revoke Admin" : "⬆ Make Admin"}
+                      </button>
+                    )}
+
+                    {/* Delete User — can't delete yourself */}
+                    {!isSelf && (
+                      <button onClick={() => deleteUser(u)} disabled={!!isLoading}
+                        style={btnS("rgba(255,30,30,0.12)", "#ff4444", "1px solid rgba(255,30,30,0.35)")}>
+                        {isLoading === "deleting" ? "..." : "🗑 Delete"}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Attempts history */}
+                {expandedUser === u.id && (
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "12px 16px", background: "rgba(0,0,0,0.15)" }}>
+                    {loadingAttempts[u.id] ? (
+                      <div style={{ color: "#666", padding: "12px", fontSize: "13px" }}>Loading...</div>
+                    ) : (userAttempts[u.id] || []).length === 0 ? (
+                      <div style={{ color: "#555", fontSize: "13px", padding: "8px" }}>No attempts recorded.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        <div style={{ color: "#aaa", fontSize: "10px", fontWeight: 700, letterSpacing: "1px", marginBottom: "4px" }}>ATTEMPT HISTORY</div>
+                        {(userAttempts[u.id] || []).map((a) => {
+                          const pct = a.total_marks > 0 ? Math.round((a.score / a.total_marks) * 100) : 0;
+                          return (
+                            <div key={a.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ color: dark ? "#ddd" : "#222", fontSize: "13px", fontWeight: 600 }}>{a.tests?.name || "Unknown Test"}</div>
+                                <div style={{ color: "#555", fontSize: "11px" }}>{new Date(a.created_at).toLocaleString("en-IN")}</div>
+                              </div>
+                              <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                                <span style={{ color: "#4ade80", fontSize: "12px" }}>✓ {a.correct_count || 0}</span>
+                                <span style={{ color: "#ff6b6b", fontSize: "12px" }}>✗ {a.wrong_count || 0}</span>
+                                <div style={{ textAlign: "right" }}>
+                                  <div style={{ color: pct >= 60 ? "#4ade80" : pct >= 40 ? "#fb923c" : "#ff6b6b", fontWeight: 700, fontSize: "15px" }}>{pct}%</div>
+                                  <div style={{ color: "#555", fontSize: "10px" }}>{a.score}/{a.total_marks}</div>
+                                </div>
+                                <button onClick={async () => {
+                                  if (!window.confirm("Delete this attempt permanently?")) return;
+                                  try {
+                                    await supabaseRequest(`/attempts?id=eq.${a.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" });
+                                    // Update local cache immediately
+                                    const remaining = (userAttempts[u.id]||[]).filter(x => x.id !== a.id);
+                                    setUserAttempts(p => ({...p, [u.id]: remaining}));
+                                    setUsers(prev => prev.map(x => x.id === u.id ? {...x, attempt_count: remaining.length} : x));
+                                    setMsg("✅ Attempt deleted.");
+                                  } catch { setMsg("❌ Failed to delete attempt."); }
+                                }} style={{ background: "rgba(255,30,30,0.12)", border: "1px solid rgba(255,30,30,0.3)", color: "#ff4444", padding: "3px 9px", borderRadius: "5px", cursor: "pointer", fontSize: "11px", fontWeight: 700 }}>🗑</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
+
 
 // ==========================================================
 // ADMIN QUESTIONS — PRO EDITION
@@ -4109,29 +4506,31 @@ function AdminPanel({ user }) {
   const [recentAttempts, setRecentAttempts] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
 
-  useEffect(() => {
-    if (user?.isAdmin && activeSection === "overview") {
-      setMetricsLoading(true);
-      // Each query is independent — one failure won't block others
-      const safe = (p) => p.catch(() => []);
-      Promise.all([
-        safe(supabaseRequest("/profiles?select=id", { token: user.token })),
-        safe(supabaseRequest("/tests?select=id", { token: user.token })),
-        safe(supabaseRequest("/attempts?select=id,user_id,score,total_marks,status,created_at,correct_count,wrong_count,unattempted_count,tests(name)&order=created_at.desc&limit=10", { token: user.token })),
-        safe(supabaseRequest("/questions?select=id", { token: user.token })),
-        safe(supabaseRequest("/organizations?select=id", { token: user.token })),
-      ]).then(([uD, tD, aD, qD, oD]) => {
-        setMetrics({
-          users: Array.isArray(uD) ? uD.length : "—",
-          tests: Array.isArray(tD) ? tD.length : "—",
-          attempts: Array.isArray(aD) ? aD.length : "—",
-          questions: Array.isArray(qD) ? qD.length : "—",
-          orgs: Array.isArray(oD) ? oD.length : "—",
-        });
-        setRecentAttempts(Array.isArray(aD) ? aD : []);
-        setMetricsLoading(false);
+  const refreshMetrics = () => {
+    if (!user?.isAdmin) return;
+    setMetricsLoading(true);
+    const safe = (p) => p.catch(() => []);
+    Promise.all([
+      safe(supabaseRequest("/profiles?select=id", { token: user.token })),
+      safe(supabaseRequest("/tests?select=id", { token: user.token })),
+      safe(supabaseRequest("/attempts?select=id,user_id,score,total_marks,status,created_at,correct_count,wrong_count,unattempted_count,tests(name)&order=created_at.desc&limit=10", { token: user.token })),
+      safe(supabaseRequest("/questions?select=id", { token: user.token })),
+      safe(supabaseRequest("/organizations?select=id", { token: user.token })),
+    ]).then(([uD, tD, aD, qD, oD]) => {
+      setMetrics({
+        users: Array.isArray(uD) ? uD.length : "—",
+        tests: Array.isArray(tD) ? tD.length : "—",
+        attempts: Array.isArray(aD) ? aD.length : "—",
+        questions: Array.isArray(qD) ? qD.length : "—",
+        orgs: Array.isArray(oD) ? oD.length : "—",
       });
-    }
+      setRecentAttempts(Array.isArray(aD) ? aD : []);
+      setMetricsLoading(false);
+    });
+  };
+
+  useEffect(() => {
+    if (user?.isAdmin && activeSection === "overview") refreshMetrics();
   }, [user, activeSection]);
 
   if (!user?.isAdmin) {
@@ -4186,9 +4585,15 @@ function AdminPanel({ user }) {
           {/* OVERVIEW */}
           {activeSection === "overview" && (
             <div>
-              <div style={{ marginBottom: "28px" }}>
-                <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "24px", margin: 0 }}>Dashboard Overview</h1>
-                <p style={{ color: "#666", fontSize: "13px", marginTop: "4px" }}>Platform at a glance</p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
+                <div>
+                  <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "24px", margin: 0 }}>Dashboard Overview</h1>
+                  <p style={{ color: "#666", fontSize: "13px", marginTop: "4px" }}>Platform at a glance</p>
+                </div>
+                <button onClick={refreshMetrics} disabled={metricsLoading} style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "8px 16px", borderRadius: "8px", cursor: metricsLoading ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700, opacity: metricsLoading ? 0.6 : 1, transition: "all 0.2s" }}>
+                  <span style={{ display: "inline-block", animation: metricsLoading ? "spin 1s linear infinite" : "none" }}>↻</span>
+                  {metricsLoading ? "Refreshing..." : "Refresh"}
+                </button>
               </div>
 
               {/* Metric cards */}
@@ -4365,8 +4770,25 @@ function HomePage({ setPage, setActiveExam, user }) {
 // ROOT APP
 // ============================================================
 export default function App() {
-  const [page, setPage] = useLocalStorage("mm_page", "home");
-  const [user, setUser] = useLocalStorage("mm_user", null);
+  // Use sessionStorage for auth state — clears on browser close
+  const [page, setPage] = useState(() => {
+    try { return sessionStorage.getItem("mm_page") || "home"; } catch { return "home"; }
+  });
+  const setPagePersist = (p) => { setPage(p); try { sessionStorage.setItem("mm_page", p); } catch {} };
+
+  const [user, setUser] = useState(() => {
+    try {
+      const s = sessionStorage.getItem("mm_user");
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  });
+  const setUserPersist = (u) => {
+    setUser(u);
+    try {
+      if (u) sessionStorage.setItem("mm_user", JSON.stringify(u));
+      else sessionStorage.removeItem("mm_user");
+    } catch {}
+  };
   const [recoveryToken, setRecoveryToken] = useState(null); // for password reset flow
   const [activeExam, setActiveExam] = useLocalStorage("mm_activeExam", null);
   const [activeTest, setActiveTest] = useLocalStorage("mm_activeTest", null);
@@ -4385,7 +4807,7 @@ export default function App() {
       window.history.replaceState(null, "", window.location.pathname);
       setActiveTest(null);
       setActiveExam(null);
-      localStorage.setItem("mm_recovery_token", accessToken);
+      sessionStorage.setItem("mm_recovery_token", accessToken);
       setRecoveryToken(accessToken);
       setPage("auth");
       return;
@@ -4400,22 +4822,22 @@ export default function App() {
           const userData = await res.json();
           if (userData?.id) {
             const sessionData = { access_token: accessToken, refresh_token: refreshToken, user: userData };
-            localStorage.setItem("mm_session", JSON.stringify(sessionData));
+            sessionStorage.setItem("mm_session", JSON.stringify(sessionData));
             let isAdmin = false;
             try {
               const roles = await supabaseRequest("/roles?user_id=eq." + userData.id + "&select=role", { token: accessToken });
               isAdmin = roles?.some(r => r.role === "admin") || false;
             } catch {}
             window.history.replaceState(null, "", window.location.pathname);
-            setUser({ ...userData, token: accessToken, isAdmin });
-            setPage("dashboard");
+            setUserPersist({ ...userData, token: accessToken, isAdmin });
+            setPagePersist(isAdmin ? "admin" : "home");
           }
         } catch {}
       })();
       return;
     }
 
-    const session = localStorage.getItem("mm_session");
+    const session = sessionStorage.getItem("mm_session");
     if (session && !user) {
       try {
         const s = JSON.parse(session);
@@ -4435,7 +4857,7 @@ export default function App() {
                 if (refreshed?.access_token) {
                   token = refreshed.access_token;
                   userData = refreshed.user || userData;
-                  localStorage.setItem("mm_session", JSON.stringify({ ...refreshed, user: userData }));
+                  sessionStorage.setItem("mm_session", JSON.stringify({ ...refreshed, user: userData }));
                 }
               }
             } catch {}
@@ -4444,21 +4866,21 @@ export default function App() {
               const roles = await supabaseRequest("/roles?user_id=eq." + userData.id + "&select=role", { token });
               isAdmin = roles?.some(r => r.role === "admin") || false;
             } catch {}
-            setUser({ ...userData, token, isAdmin });
+            setUserPersist({ ...userData, token, isAdmin });
           })();
         }
       } catch {}
     }
   }, []);
 
-  const handleLogin = (u) => setUser(u);
+  const handleLogin = (u) => { setUserPersist(u); if (u?.isAdmin) setPagePersist("admin"); else setPagePersist("home"); };
   const handleLogout = () => {
-    setUser(null);
+    setUserPersist(null);
     setActiveTest(null);
     setActiveExam(null);
-    localStorage.removeItem("mm_session");
-    localStorage.removeItem("mm_user");
-    setPage("home");
+    sessionStorage.clear(); // clear all session data
+    sessionStorage.removeItem("mm_page");
+    setPagePersist("home");
   };
 
   const showNav = page !== "exam-interface";
@@ -4466,25 +4888,78 @@ export default function App() {
 
   // Dynamic page title
   useEffect(() => {
-    const titles = {
-      home: "MeritMatrix — Odisha's #1 Mock Test Platform",
-      exams: "All Exams — MeritMatrix",
-      pricing: "Pricing — MeritMatrix",
-      auth: "Sign In — MeritMatrix",
-      dashboard: "Dashboard — MeritMatrix",
-      admin: "Admin Panel — MeritMatrix",
-      "exam-detail": "Exam Details — MeritMatrix",
-      "exam-interface": "Test in Progress — MeritMatrix",
+    const meta = {
+      home:            { title: "MeritMatrix — Odisha's #1 Mock Test Platform", desc: "Practice OSSSC, Police, SSB and defence exams with full mock tests, section-wise analysis and detailed scorecards. Trusted by thousands of aspirants in Odisha." },
+      exams:           { title: "All Exams — MeritMatrix", desc: "Browse mock tests for OSSSC CRE, Sub-Inspector, Constable, NDA, CDS and more. Attempt free and premium mock tests." },
+      pricing:         { title: "Pricing Plans — MeritMatrix", desc: "Affordable plans to access all mock tests on MeritMatrix. Free and premium options available." },
+      auth:            { title: "Sign In — MeritMatrix", desc: "Login or create your free MeritMatrix account to start practising." },
+      dashboard:       { title: "My Dashboard — MeritMatrix", desc: "View your test history, scores and performance analytics." },
+      admin:           { title: "Admin Panel — MeritMatrix", desc: "" },
+      "exam-detail":   { title: "Exam Details — MeritMatrix", desc: "View available mock tests, sectional tests and previous year papers." },
+      "exam-interface":{ title: "Test in Progress — MeritMatrix", desc: "" },
     };
-    document.title = titles[page] || "MeritMatrix";
+    const m = meta[page] || { title: "MeritMatrix", desc: "Odisha's #1 online mock test platform." };
+    document.title = m.title;
+    // Update meta description
+    let descTag = document.querySelector('meta[name="description"]');
+    if (!descTag) { descTag = document.createElement("meta"); descTag.name = "description"; document.head.appendChild(descTag); }
+    if (m.desc) descTag.content = m.desc;
+    // Update OG tags
+    const setOg = (prop, val) => {
+      if (!val) return;
+      let el = document.querySelector(`meta[property="${prop}"]`);
+      if (!el) { el = document.createElement("meta"); el.setAttribute("property", prop); document.head.appendChild(el); }
+      el.content = val;
+    };
+    setOg("og:title", m.title);
+    setOg("og:description", m.desc);
+    setOg("og:type", "website");
+    setOg("og:site_name", "MeritMatrix");
+    setOg("og:image", "https://meritmatrix.netlify.app/og-image.png");
+    // Twitter card
+    const setTw = (name, val) => {
+      if (!val) return;
+      let el = document.querySelector(`meta[name="${name}"]`);
+      if (!el) { el = document.createElement("meta"); el.name = name; document.head.appendChild(el); }
+      el.content = val;
+    };
+    setTw("twitter:card", "summary_large_image");
+    setTw("twitter:title", m.title);
+    setTw("twitter:description", m.desc);
+    // Canonical URL
+    const base = "https://meritmatrix.netlify.app";
+    const paths = { home: "/", exams: "/exams", pricing: "/pricing", auth: "/auth", dashboard: "/dashboard", "exam-detail": "/exams" };
+    let canon = document.querySelector('link[rel="canonical"]');
+    if (!canon) { canon = document.createElement("link"); canon.rel = "canonical"; document.head.appendChild(canon); }
+    canon.href = base + (paths[page] || "/");
+    // JSON-LD structured data on homepage only
+    let ld = document.getElementById("mm-jsonld");
+    if (page === "home") {
+      if (!ld) { ld = document.createElement("script"); ld.type = "application/ld+json"; ld.id = "mm-jsonld"; document.head.appendChild(ld); }
+      ld.textContent = JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "EducationalOrganization",
+        "name": "MeritMatrix",
+        "url": "https://meritmatrix.netlify.app",
+        "description": "Odisha's #1 online mock test platform for OSSSC, police and defence exams",
+        "offers": { "@type": "Offer", "category": "Mock Tests" }
+      });
+    } else if (ld) { ld.remove(); }
   }, [page]);
 
   const bg = dark ? "#080a14" : "#f5f6fa";
   const fg = dark ? "#ffffff" : "#111827";
 
+  // Set html lang + hide initial loader once React mounts
+  useEffect(() => {
+    document.documentElement.lang = "en";
+    if (window.__hideLoader) window.__hideLoader();
+  }, []);
+
   return (
     <ThemeContext.Provider value={dark}>
     <AuthContext.Provider value={{ user, setUser }}>
+      <a href="#main-content" style={{ position:"absolute", left:"-9999px", top:"auto", width:1, height:1, overflow:"hidden" }} onFocus={e => { e.target.style.left="16px"; e.target.style.top="16px"; e.target.style.width="auto"; e.target.style.height="auto"; e.target.style.zIndex="99999"; e.target.style.padding="8px 16px"; e.target.style.background="#FFD700"; e.target.style.color="#000"; e.target.style.borderRadius="6px"; }} onBlur={e => { e.target.style.left="-9999px"; }}>Skip to main content</a>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800;900&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -4562,29 +5037,29 @@ export default function App() {
       `}</style>
 
       {showNav && (
-        <Navbar page={page} setPage={setPage} user={user} onLogout={handleLogout} dark={dark} setDark={setDark} />
+        <Navbar page={page} setPage={setPagePersist} user={user} onLogout={handleLogout} dark={dark} setDark={setDark} />
       )}
 
-      <main>
-        {page === "home"           && <HomePage setPage={setPage} setActiveExam={setActiveExam} user={user} />}
-        {page === "exams"          && <ExamsPage setPage={setPage} setActiveExam={setActiveExam} />}
-        {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPage} setActiveTest={setActiveTest} user={user} />}
-        {page === "auth"           && <AuthPage setPage={setPage} onLogin={handleLogin} recoveryToken={recoveryToken} onRecoveryUsed={() => setRecoveryToken(null)} />}
-        {page === "dashboard"      && <DashboardPage user={user} setPage={setPage} />}
-        {page === "exam-interface" && <ExamInterface setPage={setPage} activeTest={activeTest} />}
-        {page === "pricing"        && <PricingPage setPage={setPage} />}
-        {page === "admin"          && <AdminPanel user={user} />}
+      <main id="main-content" role="main" aria-label="Main content">
+        {page === "home"           && <HomePage setPage={setPagePersist} setActiveExam={setActiveExam} user={user} />}
+        {page === "exams"          && <ExamsPage setPage={setPagePersist} setActiveExam={setActiveExam} />}
+        {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPagePersist} setActiveTest={setActiveTest} user={user} />}
+        {page === "auth"           && <AuthPage setPage={setPagePersist} onLogin={handleLogin} recoveryToken={recoveryToken} onRecoveryUsed={() => setRecoveryToken(null)} />}
+        {page === "dashboard"      && <DashboardPage user={user} setPage={setPagePersist} setActiveTest={setActiveTest} setActiveExam={setActiveExam} />}
+        {page === "exam-interface" && <ExamInterface setPage={setPagePersist} setDark={setDark} activeTest={activeTest} />}
+        {page === "pricing"        && <PricingPage setPage={setPagePersist} />}
+        {page === "admin"          && <AdminPanel user={user} setPage={setPagePersist} />}
         {!["home","exams","exam-detail","auth","dashboard","exam-interface","pricing","admin"].includes(page) && (
           <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", padding: "80px 1rem" }}>
             <div style={{ fontSize: "4rem" }}>🔍</div>
             <h2 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Page not found</h2>
             <p style={{ color: dark ? "#666" : "#888" }}>This page doesn't exist.</p>
-            <button onClick={() => setPage("home")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "10px", cursor: "pointer", fontWeight: 700 }}>Go Home</button>
+            <button onClick={() => setPagePersist("home")} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "12px 28px", borderRadius: "10px", cursor: "pointer", fontWeight: 700 }}>Go Home</button>
           </div>
         )}
       </main>
 
-      {showFooter && <Footer setPage={setPage} />}
+      {showFooter && <Footer setPage={setPagePersist} />}
     </AuthContext.Provider>
     </ThemeContext.Provider>
   );
