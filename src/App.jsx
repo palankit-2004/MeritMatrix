@@ -223,20 +223,27 @@ async function supabaseAuth(action, payload) {
 
 // PASTE THIS RIGHT BELOW supabaseAuth:
 async function supabaseUpload(bucket, path, file, token) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
-    method: "POST",
+  // Try POST first; if file exists (409) use PUT to upsert
+  const upload = async (method) => fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method,
     headers: {
       "apikey": SUPABASE_ANON_KEY,
       "Authorization": `Bearer ${token}`,
-      "Content-Type": file.type
+      "Content-Type": file.type,
+      "x-upsert": "true",
+      "Cache-Control": "3600",
     },
     body: file
   });
+  let res = await upload("POST");
+  if (res.status === 409) res = await upload("PUT"); // file exists — overwrite
   if (!res.ok) {
-    const err = await res.json().catch(()=>({}));
-    throw new Error(err.message || "Image upload failed");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.message || `Upload failed (${res.status})`);
   }
-  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+  // Return cache-busted public URL to ensure fresh load
+  const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+  return publicUrl;
 }
 
 // ============================================================
@@ -647,7 +654,7 @@ function ExamsPage({ setPage, setActiveExam }) {
               color: exam.organizations?.color || "#FFD700",
               test_count: types.length,
               has_mock: types.includes("mock"),
-              has_sectional: types.includes("sectional"),
+              has_sectional: types.some(t => ["sectional","practice_set","speed_test"].includes(t)),
               has_pyq: types.includes("pyq"),
             };
           } catch { return { ...exam, color: "#FFD700", test_count: 0 }; }
@@ -864,6 +871,113 @@ function TestInstructionsModal({ test, onConfirm, onCancel, dark }) {
 }
 
 // EXAM DETAIL PAGE — fully dynamic from Supabase
+
+function SectionalGrouped({ tests, dark, renderTestCard }) {
+  const GCOLS = ["#FFD700","#4ade80","#818cf8","#fb923c","#f472b6","#22d3ee","#a78bfa","#34d399","#60a5fa","#f87171"];
+  const subjectKeywords = ["english","odia","hindi","mathematics","maths","math","reasoning","logical","general studies","gs","general knowledge","gk","computer","science","history","geography","polity","economics","current affairs","physics","chemistry","biology","environment"];
+  const [activeSubject, setActiveSubject] = useState(null);
+
+  const groups = {};
+  tests.forEach(t => {
+    let group = t.subject && t.subject.trim() ? t.subject.trim() : null;
+    if (!group) {
+      const nl = (t.name || "").toLowerCase();
+      for (const kw of subjectKeywords) {
+        if (nl.includes(kw)) { group = kw.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "); break; }
+      }
+    }
+    if (!group) group = "Other";
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(t);
+  });
+  const groupEntries = Object.entries(groups);
+
+  const scrollTo = (subject) => {
+    setActiveSubject(subject);
+    setTimeout(() => {
+      const el = document.getElementById(`sg-${subject.replace(/\s+/g, "-")}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
+
+  const visibleGroups = activeSubject ? groupEntries.filter(([s]) => s === activeSubject) : groupEntries;
+
+  return (
+    <div>
+      {/* Subject filter pills — always visible */}
+      <div style={{
+        position: "sticky", top: "58px", zIndex: 50,
+        background: dark ? "rgba(8,10,20,0.97)" : "rgba(245,246,250,0.97)",
+        backdropFilter: "blur(12px)",
+        borderBottom: dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.08)",
+        padding: "10px 0", marginBottom: "20px",
+        display: "flex", gap: "8px", overflowX: "auto", scrollbarWidth: "none",
+        WebkitOverflowScrolling: "touch",
+      }}>
+        <button onClick={() => setActiveSubject(null)} style={{
+          flexShrink: 0, padding: "7px 16px", borderRadius: "20px", cursor: "pointer",
+          border: activeSubject === null ? "1px solid rgba(255,215,0,0.5)" : dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
+          background: activeSubject === null ? "rgba(255,215,0,0.12)" : "transparent",
+          color: activeSubject === null ? "#FFD700" : dark ? "#888" : "#666",
+          fontSize: "13px", fontWeight: activeSubject === null ? 700 : 500, transition: "all 0.15s"
+        }}>All <span style={{ opacity: 0.6, fontSize: "11px" }}>({tests.length})</span></button>
+
+        {groupEntries.map(([subject, subTests], gi) => {
+          const c = GCOLS[gi % GCOLS.length];
+          const isActive = activeSubject === subject;
+          return (
+            <button key={subject} onClick={() => {
+              const next = isActive ? null : subject;
+              setActiveSubject(next);
+              if (next) setTimeout(() => {
+                const el = document.getElementById(`sg-${subject.replace(/\s+/g,"-")}`);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 50);
+            }} style={{
+              flexShrink: 0, padding: "7px 16px", borderRadius: "20px", cursor: "pointer",
+              border: isActive ? `1px solid ${c}88` : dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
+              background: isActive ? `${c}25` : `${c}0a`,
+              color: isActive ? c : dark ? "#aaa" : "#666",
+              fontSize: "13px", fontWeight: isActive ? 700 : 500, transition: "all 0.15s",
+              display: "flex", alignItems: "center", gap: "6px"
+            }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: c, display: "inline-block", flexShrink: 0, opacity: isActive ? 1 : 0.7 }} />
+              {subject}
+              <span style={{ background: isActive ? `${c}30` : `${c}18`, color: c, fontSize: "10px", fontWeight: 700, padding: "1px 7px", borderRadius: "8px", marginLeft: "2px" }}>{subTests.length}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Groups */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        {visibleGroups.map(([subject, subTests]) => {
+          const gi = groupEntries.findIndex(([s]) => s === subject);
+          const c = GCOLS[gi % GCOLS.length];
+          return (
+            <div key={subject} id={`sg-${subject.replace(/\s+/g, "-")}`} style={{ scrollMarginTop: "120px" }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px",
+                padding: "10px 14px", borderRadius: "10px",
+                background: `${c}0e`, border: `1px solid ${c}25`
+              }}>
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 }} />
+                <span style={{ color: c, fontWeight: 800, fontSize: "13px", textTransform: "uppercase", letterSpacing: "0.8px", flex: 1 }}>{subject}</span>
+                <span style={{ background: `${c}20`, border: `1px solid ${c}40`, color: c, fontSize: "11px", fontWeight: 700, padding: "2px 10px", borderRadius: "10px" }}>
+                  {subTests.length} test{subTests.length > 1 ? "s" : ""}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {subTests.map(test => renderTestCard(test))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
   const dark = useTheme();
   const [activeTab, setActiveTab] = useState("mock");
@@ -884,8 +998,51 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
 
   const byType = {
     mock:      tests.filter(t => t.test_type === "mock"),
-    sectional: tests.filter(t => t.test_type === "sectional"),
+    sectional: tests.filter(t => ["sectional","practice_set","speed_test"].includes(t.test_type)),
     pyq:       tests.filter(t => t.test_type === "pyq"),
+  };
+
+  const renderTestCard = (test) => {
+    const typeLabel = { mock: "Mock", sectional: "Sectional", pyq: "PYQ", practice_set: "Practice", speed_test: "Speed" }[test.test_type] || "";
+    const typeColor = { mock: "#FFD700", sectional: "#4ade80", pyq: "#818cf8", practice_set: "#fb923c", speed_test: "#f472b6" }[test.test_type] || "#FFD700";
+    return (
+      <div key={test.id} style={{
+        background: dark ? "rgba(255,255,255,0.04)" : "#fff",
+        border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: "12px", padding: "16px 20px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px",
+        boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.06)"
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
+            <span style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "15px" }}>{test.name}</span>
+            <span style={{ background: typeColor + "18", border: `1px solid ${typeColor}40`, color: typeColor, fontSize: "10px", fontWeight: 700, padding: "1px 7px", borderRadius: "10px", letterSpacing: "0.5px" }}>{typeLabel}</span>
+          </div>
+          <div style={{ color: dark ? "#666" : "#888", fontSize: "13px" }}>
+            {test.duration_minutes} min • {test.total_marks} Marks • -{test.negative_value} negative
+          </div>
+        </div>
+        <button
+          onClick={() => {
+            if (!user) { setPage("auth"); return; }
+            setPendingTest({
+              name: test.name,
+              test_id: test.id,
+              duration: test.duration_minutes,
+              limit: test.total_marks,
+              negative_value: test.negative_value,
+              instructions: test.instructions,
+              sections: test.sections || null,
+            });
+          }}
+          style={{
+            background: "linear-gradient(135deg, #FFD700, #FF8C00)",
+            border: "none", color: "#000", padding: "10px 22px",
+            borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: 700, flexShrink: 0
+          }}
+        >{user ? "Start Test" : "Login to Start"}</button>
+      </div>
+    );
   };
 
   return (
@@ -917,7 +1074,7 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "20px", background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", borderRadius: "10px", padding: "4px" }}>
-        {[["mock","Mock Tests"],["sectional","Sectional"],["pyq","PYQ"]].map(([k,l]) => (
+        {[["mock","Mock Tests"],["sectional","Sectional / Practice"],["pyq","PYQ"]].map(([k,l]) => (
           <button key={k} onClick={() => setActiveTab(k)} style={{
             flex: 1, background: activeTab===k ? "rgba(255,215,0,0.15)" : "transparent",
             border: activeTab===k ? "1px solid rgba(255,215,0,0.3)" : "1px solid transparent",
@@ -938,50 +1095,13 @@ function ExamDetailPage({ exam, setPage, setActiveTest, user }) {
           borderRadius: "14px", color: "#555"
         }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📭</div>
-          <span style={{ color: dark ? "#555" : "#888" }}>No {activeTab === "mock" ? "mock tests" : activeTab === "sectional" ? "sectional tests" : "PYQ papers"} published yet.</span>
+          <span style={{ color: dark ? "#555" : "#888" }}>No {activeTab === "mock" ? "mock tests" : activeTab === "sectional" ? "sectional/practice tests" : "PYQ papers"} published yet.</span>
         </div>
+      ) : activeTab === "sectional" ? (
+        <SectionalGrouped tests={byType["sectional"]} dark={dark} renderTestCard={renderTestCard} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {byType[activeTab].map(test => (
-            <div key={test.id} style={{
-              background: dark ? "rgba(255,255,255,0.04)" : "#fff",
-              border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-              borderRadius: "12px", padding: "16px 20px",
-              display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px",
-              boxShadow: dark ? "none" : "0 1px 4px rgba(0,0,0,0.06)"
-            }}>
-              <div>
-                <div style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "15px" }}>{test.name}</div>
-                <div style={{ color: dark ? "#666" : "#888", fontSize: "13px", marginTop: "4px" }}>
-                  {test.duration_minutes} min • {test.total_marks} Marks • -{test.negative_value} negative
-                  {test._questionCount !== undefined && <span style={{color:"rgba(255,215,0,0.7)", marginLeft:"6px"}}>({test._questionCount} questions)</span>}
-                </div>
-
-
-              </div>
-              <button
-                onClick={() => {
-                  if (!user) { setPage("auth"); return; }
-                  setPendingTest({ 
-                    name: test.name, 
-                    test_id: test.id, 
-                    duration: test.duration_minutes, 
-                    limit: test.total_marks, 
-                    negative_value: test.negative_value, 
-                    instructions: test.instructions,
-                    sections: test.sections || null,
-                  });
-                }}
-                style={{
-                  background: "linear-gradient(135deg, #FFD700, #FF8C00)",
-                  border: "none", color: "#000", padding: "10px 22px",
-                  borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: 700
-                }}
-              >
-                {user ? "Start Test" : "Login to Start"}
-              </button>
-            </div>
-          ))}
+          {byType[activeTab].map(test => renderTestCard(test))}
         </div>
       )}
 
@@ -1522,7 +1642,7 @@ function ScorecardModal({ attempt, dark, onClose, onReattempt }) {
           {[
             ["🎯 Accuracy", `${(attempt.correct_count||0)+(attempt.wrong_count||0) > 0 ? Math.round((attempt.correct_count||0)/((attempt.correct_count||0)+(attempt.wrong_count||0))*100) : 0}%`, "of attempted", "#4ade80"],
             ["📊 Attempt Rate", `${attempt.total_marks > 0 ? Math.round(((attempt.correct_count||0)+(attempt.wrong_count||0))/(questions.length||1)*100) : 0}%`, `${(attempt.correct_count||0)+(attempt.wrong_count||0)} of ${questions.length} Qs`, "#FFD700"],
-            ["⚠️ Marks Lost", `-${(attempt.wrong_count||0) > 0 ? (questions.find(q=>q)?.negative_marks || 0.33) * (attempt.wrong_count||0) : 0}`, "from wrong answers", "#ff6b6b"],
+            ["⚠️ Marks Lost", (attempt.wrong_count||0) > 0 ? `-${((attempt.negative_value || (questions[0]?.negative_marks) || 0.33) * (attempt.wrong_count||0)).toFixed(2)}` : "0", "from wrong answers", "#ff6b6b"],
             ["⏱ Avg/Question", questions.length > 0 ? `${Math.round((attempt.time_taken_seconds||0)/questions.length)}s` : "—", "per question", "#fb923c"],
           ].map(([l,v,sub,c]) => (
             <div key={l} style={{ background:cardBg, border, borderRadius:"12px", padding:"16px" }}>
@@ -1610,7 +1730,7 @@ function ScorecardModal({ attempt, dark, onClose, onReattempt }) {
   );
 }
 
-function DashboardPage({ user, setPage, setActiveTest, setActiveExam }) {
+function DashboardPage({ user, setPage, setActiveTest }) {
   const dark = useTheme();
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1619,7 +1739,7 @@ function DashboardPage({ user, setPage, setActiveTest, setActiveExam }) {
 
   const loadAttempts = () => {
     if (!user) return;
-    supabaseRequest(`/attempts?user_id=eq.${user.id}&select=*,tests(name,id)&order=created_at.desc&limit=50`, { token: user.token })
+    supabaseRequest(`/attempts?user_id=eq.${user.id}&select=*,tests(id,name,duration_minutes,negative_value,sections,instructions)&order=created_at.desc&limit=50`, { token: user.token })
       .then(data => { setAttempts(data || []); setLoading(false); })
       .catch(() => setLoading(false));
   };
@@ -1634,12 +1754,19 @@ function DashboardPage({ user, setPage, setActiveTest, setActiveExam }) {
   const handleReattempt = (a) => {
     const testId = a.test_id || a.tests?.id;
     if (!testId) { setPage("exams"); return; }
+    // Clear old exam state so it starts fresh
+    localStorage.removeItem(`mm_time_${testId}`);
+    localStorage.removeItem(`mm_ans_${testId}`);
+    localStorage.removeItem(`mm_mark_${testId}`);
+    localStorage.removeItem(`mm_cur_${testId}`);
     setActiveTest({
       name: a.tests?.name || "Test",
       test_id: testId,
-      duration: a.duration_minutes || 90,
+      duration: a.tests?.duration_minutes || a.duration_minutes || 90,
       limit: a.total_marks,
-      negative_value: a.negative_value || 0.33,
+      negative_value: a.tests?.negative_value || a.negative_value || 0.33,
+      sections: a.tests?.sections || null,
+      instructions: a.tests?.instructions || null,
     });
     setShowScorecard(false);
     setPage("exam-interface");
@@ -1780,6 +1907,7 @@ function ExamInterface({ setPage, activeTest, setDark }) {
   useEffect(() => { localStorage.setItem(markKey, JSON.stringify(marked)); }, [marked, markKey]);
   useEffect(() => { localStorage.setItem(curKey, current); }, [current, curKey]);
   const [submitted, setSubmitted] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [warnings, setWarnings] = useState(0);
   const [showWarning, setShowWarning] = useState(false);
   const [score, setScore] = useState(null);
@@ -1893,7 +2021,7 @@ function ExamInterface({ setPage, activeTest, setDark }) {
         ).length;
         const wrongCount = questions.filter(q => 
           answers[q.id] !== undefined && 
-          String(answers[q.id]).toLowerCase().trim() !== String(q.correct).toLowerCase().trim()
+          String(answers[q.id]).toLowerCase().trim() !== String(q.correct||"").toLowerCase().trim()
         ).length;
         const unattemptedCount = questions.filter(q => answers[q.id] === undefined).length;
         // Build per-subject breakdown
@@ -1904,8 +2032,8 @@ function ExamInterface({ setPage, activeTest, setDark }) {
           subjectMap[s].total++;
           const ua = answers[q.id];
           if (ua === undefined) { subjectMap[s].skipped++; }
-          else if (String(ua).toLowerCase().trim() === String(q.correct).toLowerCase().trim()) { subjectMap[s].correct++; subjectMap[s].score += q.marks; }
-          else { subjectMap[s].wrong++; subjectMap[s].score -= q.negative; }
+          else if (String(ua).toLowerCase().trim() === String(q.correct||"").toLowerCase().trim()) { subjectMap[s].correct++; subjectMap[s].score += (q.marks||1); }
+          else { subjectMap[s].wrong++; subjectMap[s].score -= (q.negative||0.25); }
         });
         await supabaseRequest("/attempts", {
           method: "POST",
@@ -1973,9 +2101,19 @@ function ExamInterface({ setPage, activeTest, setDark }) {
     document.addEventListener("visibilitychange", handleVisibility);
     const handleCtx = e => { if (!submitted) e.preventDefault(); };
     document.addEventListener("contextmenu", handleCtx);
-    timerRef.current = setInterval(() => {
-      setTimeLeft(t => { if (t <= 1) { clearInterval(timerRef.current); handleSubmit(); return 0; } return t - 1; });
-    }, 1000);
+    // Don't start timer if already submitted or loading
+    if (!submitted && !loading && !loadError) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft(t => {
+          if (t <= 1) {
+            clearInterval(timerRef.current);
+            handleSubmit(); // Auto-submit — no confirm dialog
+            return 0;
+          }
+          return t - 1;
+        });
+      }, 1000);
+    }
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("contextmenu", handleCtx);
@@ -2089,8 +2227,9 @@ function ExamInterface({ setPage, activeTest, setDark }) {
     const totalMarks = questions.reduce((s, q) => s + q.marks, 0);
     const pct = totalMarks > 0 ? Math.round(score / totalMarks * 100) : 0;
     const isNegativeScore = score < 0;
-    const correct = questions.filter(q => answers[q.id] !== undefined && String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim()).length;
-    const wrong = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== q.correct).length;
+    const normAnswer = (v) => typeof v === "number" ? ["a","b","c","d"][v] || String(v) : String(v||"").toLowerCase().trim();
+    const correct = questions.filter(q => answers[q.id] !== undefined && normAnswer(answers[q.id]) === normAnswer(q.correct)).length;
+    const wrong = questions.filter(q => answers[q.id] !== undefined && normAnswer(answers[q.id]) !== normAnswer(q.correct)).length;
     const skippedQ = TOTAL - correct - wrong;
     const timeTaken = DURATION - timeLeft;
     const mm2 = String(Math.floor(timeTaken/60)).padStart(2,"0");
@@ -2101,7 +2240,7 @@ function ExamInterface({ setPage, activeTest, setDark }) {
       const s = q.subject || "General";
       if (!subjects[s]) subjects[s] = { correct: 0, wrong: 0, skipped: 0, total: 0, marks: 0 };
       subjects[s].total++;
-      if (answers[q.id] !== undefined && String(answers[q.id]).toLowerCase().trim() === String(q.correct).toLowerCase().trim()) { subjects[s].correct++; subjects[s].marks += q.marks; }
+      if (answers[q.id] !== undefined && normAnswer(answers[q.id]) === normAnswer(q.correct)) { subjects[s].correct++; subjects[s].marks += q.marks; }
       else if (answers[q.id] !== undefined) { subjects[s].wrong++; subjects[s].marks -= q.negative; }
       else subjects[s].skipped++;
     });
@@ -2294,7 +2433,9 @@ function ExamInterface({ setPage, activeTest, setDark }) {
                             {q.options.map((opt, idx) => {
                               // q.correct is "a"/"b"/"c"/"d", idx is 0/1/2/3 — convert
                               const idxLetter = ["a","b","c","d"][idx];
-                              const isUserChoice = String(userAns).toLowerCase().trim() === idxLetter;
+                              // Handle both old (number index) and new (letter) format
+                              const normAns = typeof userAns === "number" ? ["a","b","c","d"][userAns] : String(userAns).toLowerCase().trim();
+                              const isUserChoice = normAns === idxLetter;
                               const isCorrectOpt = String(q.correct).toLowerCase().trim() === idxLetter;
                               const defTheme = T.optDefault(dark);
                               let bg = defTheme.bg, border = `1px solid ${defTheme.border}`, col = defTheme.text;
@@ -2403,7 +2544,9 @@ function ExamInterface({ setPage, activeTest, setDark }) {
           <span>Remaining</span><span style={{ color: "#ff6b6b" }}>{TOTAL - answered}</span>
         </div>
       </div>
-      <button onClick={handleSubmit} style={{
+      <button onClick={() => {
+setShowSubmitConfirm(true);
+      }} style={{
         width: "100%", marginTop: "14px",
         background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none",
         color: "#000", padding: "13px", borderRadius: "10px",
@@ -2419,6 +2562,62 @@ function ExamInterface({ setPage, activeTest, setDark }) {
         @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
       `}</style>
+
+      {/* Submit Confirm Modal */}
+      {showSubmitConfirm && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:10000, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }}>
+          <div style={{
+            background: dark ? "#0f1120" : "#ffffff",
+            border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.12)",
+            borderRadius: "20px", padding: "32px 28px", maxWidth: "420px", width: "100%",
+            boxShadow: "0 24px 80px rgba(0,0,0,0.5)"
+          }}>
+            {/* Icon */}
+            <div style={{ textAlign:"center", marginBottom:"20px" }}>
+              <div style={{ width:64, height:64, borderRadius:"50%", background:"rgba(255,215,0,0.1)", border:"2px solid rgba(255,215,0,0.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"28px", margin:"0 auto" }}>📋</div>
+            </div>
+            <h3 style={{ color: dark?"#fff":"#111", fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:"1.2rem", textAlign:"center", margin:"0 0 8px" }}>Submit Test?</h3>
+            <p style={{ color: dark?"#666":"#888", fontSize:"13px", textAlign:"center", margin:"0 0 24px" }}>Once submitted, answers cannot be changed.</p>
+
+            {/* Stats */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"10px", marginBottom:"24px" }}>
+              {[
+                { label:"Answered", value:answered, color:"#4ade80" },
+                { label:"Unanswered", value:TOTAL-answered, color: (TOTAL-answered)>0?"#fb923c":"#4ade80" },
+                { label:"Marked", value:Object.keys(marked).filter(k=>marked[k]).length, color:"#818cf8" },
+              ].map(({label,value,color}) => (
+                <div key={label} style={{ background: dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", borderRadius:"10px", padding:"12px 8px", textAlign:"center" }}>
+                  <div style={{ color, fontSize:"1.5rem", fontWeight:900, fontFamily:"'Sora',sans-serif", lineHeight:1 }}>{value}</div>
+                  <div style={{ color: dark?"#555":"#888", fontSize:"10px", marginTop:"4px", textTransform:"uppercase", letterSpacing:"0.5px" }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Warning if unanswered */}
+            {TOTAL - answered > 0 && (
+              <div style={{ background:"rgba(251,146,60,0.08)", border:"1px solid rgba(251,146,60,0.25)", borderRadius:"10px", padding:"10px 14px", marginBottom:"20px", display:"flex", gap:"8px", alignItems:"center" }}>
+                <span style={{ fontSize:"16px" }}>⚠️</span>
+                <span style={{ color:"#fb923c", fontSize:"12px" }}>{TOTAL - answered} question{TOTAL-answered>1?"s":""} unanswered — they will be marked as skipped.</span>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display:"flex", gap:"10px" }}>
+              <button onClick={() => setShowSubmitConfirm(false)} style={{
+                flex:1, background:"transparent",
+                border: dark?"1px solid rgba(255,255,255,0.12)":"1px solid rgba(0,0,0,0.15)",
+                color: dark?"#aaa":"#555", padding:"13px", borderRadius:"10px",
+                cursor:"pointer", fontSize:"14px", fontWeight:600
+              }}>Cancel</button>
+              <button onClick={() => { setShowSubmitConfirm(false); handleSubmit(); }} style={{
+                flex:2, background:"linear-gradient(135deg,#FFD700,#FF8C00)",
+                border:"none", color:"#000", padding:"13px",
+                borderRadius:"10px", cursor:"pointer", fontSize:"14px", fontWeight:800
+              }}>✓ Submit Test</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Warning banner */}
       {showWarning && (
@@ -2464,7 +2663,9 @@ function ExamInterface({ setPage, activeTest, setDark }) {
             border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.15)",
             color: dark ? "#aaa" : "#555", padding: "7px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "13px"
           }}>📋</button>
-          <button onClick={handleSubmit} style={{
+          <button onClick={() => {
+    setShowSubmitConfirm(true);
+          }} style={{
             background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none",
             color: "#000", padding: "8px 16px", borderRadius: "8px",
             cursor: "pointer", fontSize: "13px", fontWeight: 800
@@ -2551,16 +2752,40 @@ function ExamInterface({ setPage, activeTest, setDark }) {
 
           {/* Question card */}
           <div style={{ background: T.cardBg(dark), border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)", borderRadius: "16px", padding: "clamp(16px,3vw,28px)", marginBottom: "14px" }}>
+            {q.image_url && (
+              <div style={{ marginBottom: "16px", textAlign: "center" }}>
+                <img
+                  src={q.image_url}
+                  alt="Question illustration"
+                  style={{ maxWidth: "100%", maxHeight: "280px", borderRadius: "10px", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.1)", objectFit: "contain", display: "block", margin: "0 auto" }}
+                  onError={e => {
+                    // Show broken image placeholder instead of hiding silently
+                    e.target.style.display = "none";
+                    const ph = e.target.nextSibling;
+                    if (ph) ph.style.display = "flex";
+                  }}
+                  onLoad={e => {
+                    const ph = e.target.nextSibling;
+                    if (ph) ph.style.display = "none";
+                  }}
+                />
+                <div style={{ display: "none", flexDirection: "column", alignItems: "center", gap: "8px", padding: "20px", background: "rgba(255,100,100,0.06)", border: "1px dashed rgba(255,100,100,0.3)", borderRadius: "10px" }}>
+                  <span style={{ fontSize: "2rem" }}>🖼️</span>
+                  <span style={{ color: "#ff6b6b", fontSize: "12px" }}>Image failed to load</span>
+                  <button onClick={() => { const img = document.querySelector(`img[src="${q.image_url}"]`); if(img){ img.src = q.image_url + "?t=" + Date.now(); img.style.display = "block"; img.previousSibling && (img.previousSibling.style.display="none"); } }} style={{ background: "rgba(255,100,100,0.1)", border: "1px solid rgba(255,100,100,0.3)", color: "#ff6b6b", padding: "4px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "11px" }}>Retry</button>
+                </div>
+              </div>
+            )}
             <p style={{ color: T.primary(dark), fontSize: "clamp(15px,2.5vw,18px)", lineHeight: 1.8, margin: 0, fontWeight: 500 }}>{q.text}</p>
           </div>
 
           {/* Options */}
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
             {q.options.map((opt, idx) => {
-              const selected = answers[q.id] === idx;
+              const selected = answers[q.id] === ["a","b","c","d"][idx];
               const ot = selected ? T.optSelected(dark) : T.optDefault(dark);
               return (
-                <button key={idx} onClick={() => setAnswers(prev => ({ ...prev, [q.id]: idx }))} style={{
+                <button key={idx} onClick={() => setAnswers(prev => ({ ...prev, [q.id]: ["a","b","c","d"][idx] }))} style={{
                   background: ot.bg,
                   border: `${selected ? "2px" : "1px"} solid ${ot.border}`,
                   color: ot.text,
@@ -2759,6 +2984,7 @@ function AdminOrganizations({ user }) {
   const [showForm, setShowForm] = useState(false);
   const [editOrg, setEditOrg] = useState(null);
   const [msg, setMsg] = useState("");
+  const [confirmDel, setConfirmDel] = useState(null); // org id to delete
 
   const emptyOrg = { name: "", color: "#FFD700", description: "", is_active: true };
   const [orgForm, setOrgForm] = useState(emptyOrg);
@@ -2791,10 +3017,13 @@ function AdminOrganizations({ user }) {
   };
 
   const deleteOrg = async (id) => {
-    if (!window.confirm("Delete this organization? Exams linked to it might be affected.")) return;
+    setConfirmDel(id);
+  };
+  const confirmDeleteOrg = async () => {
+    const id = confirmDel; setConfirmDel(null);
     try {
       await supabaseRequest(`/organizations?id=eq.${id}`, { method: "DELETE", token: user.token });
-      loadOrgs();
+      setMsg("✅ Organization deleted."); loadOrgs();
     } catch(e) { setMsg("❌ " + e.message); }
   };
 
@@ -2802,12 +3031,27 @@ function AdminOrganizations({ user }) {
 
   return (
     <div style={{ maxWidth: "900px" }}>
+      {/* Confirm Delete Modal */}
+      {confirmDel && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px" }}>
+          <div style={{ background:dark?"#0f1120":"#fff",border:dark?"1px solid rgba(255,255,255,0.1)":"1px solid rgba(0,0,0,0.12)",borderRadius:"16px",padding:"28px",maxWidth:"360px",width:"100%",boxShadow:"0 24px 60px rgba(0,0,0,0.5)",textAlign:"center" }}>
+            <div style={{fontSize:"2.5rem",marginBottom:"12px"}}>⚠️</div>
+            <h3 style={{color:dark?"#fff":"#111",fontFamily:"'Sora',sans-serif",fontWeight:800,margin:"0 0 8px"}}>Delete Organization?</h3>
+            <p style={{color:"#666",fontSize:"13px",lineHeight:1.6,margin:"0 0 24px"}}>Exams linked to this organization may be affected. This cannot be undone.</p>
+            <div style={{display:"flex",gap:"10px"}}>
+              <button onClick={() => setConfirmDel(null)} style={{flex:1,background:"transparent",border:dark?"1px solid rgba(255,255,255,0.12)":"1px solid rgba(0,0,0,0.15)",color:dark?"#aaa":"#555",padding:"11px",borderRadius:"8px",cursor:"pointer",fontWeight:600}}>Cancel</button>
+              <button onClick={confirmDeleteOrg} style={{flex:1,background:"linear-gradient(135deg,#ff4444,#cc0000)",border:"none",color:"#fff",padding:"11px",borderRadius:"8px",cursor:"pointer",fontWeight:800}}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "12px" }}>
         <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800 }}>Organizations</h1>
         <button onClick={() => { setShowForm(true); setEditOrg(null); setOrgForm(emptyOrg); }} style={{ background: "linear-gradient(135deg,#FFD700,#FF8C00)", border: "none", color: "#000", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 }}>+ New Organization</button>
       </div>
 
-      {msg && <div style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "14px" }}>{msg}</div>}
+      {msg && <div onClick={() => setMsg("")} style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "13px", cursor:"pointer", padding:"10px 14px", background: msg.startsWith("✅") ? "rgba(74,222,128,0.08)" : "rgba(255,50,50,0.08)", borderRadius:"8px", border: msg.startsWith("✅") ? "1px solid rgba(74,222,128,0.25)" : "1px solid rgba(255,50,50,0.25)" }}>{msg} <span style={{float:"right",opacity:0.5}}>✕</span></div>}
 
       {showForm && (
         <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "14px", padding: "20px", marginBottom: "20px" }}>
@@ -2885,7 +3129,7 @@ function AdminExams({ user }) {
   const emptyTest = {
     name: "", test_type: "mock", duration_minutes: 60,
     total_marks: 100, negative_value: 0.25,
-    instructions: "", is_published: false, sections: []
+    instructions: "", is_published: false, sections: [], subject: ""
   };
   const emptySection = {
     name: "Section A", subject: "", questions_count: 20,
@@ -2949,15 +3193,34 @@ function AdminExams({ user }) {
       : testForm.total_marks;
     try {
       const body = {
-        ...testForm,
-        exam_id: examId,
+        name: testForm.name,
+        test_type: testForm.test_type,
+        duration_minutes: testForm.duration_minutes,
         total_marks: autoMarks,
+        negative_value: testForm.negative_value,
+        instructions: testForm.instructions || null,
+        is_published: testForm.is_published,
         sections: sections.length > 0 ? JSON.stringify(sections) : null,
+        exam_id: examId,
+        subject: testForm.subject || null,
       };
-      if (editTest) {
-        await supabaseRequest(`/tests?id=eq.${editTest.id}`, { method: "PATCH", body, token: user.token });
-      } else {
-        await supabaseRequest("/tests", { method: "POST", body, token: user.token });
+      const saveReq = async (b) => editTest
+        ? supabaseRequest(`/tests?id=eq.${editTest.id}`, { method: "PATCH", body: b, token: user.token, prefer: "return=minimal" })
+        : supabaseRequest("/tests", { method: "POST", body: b, token: user.token, prefer: "return=minimal" });
+      try {
+        await saveReq(body);
+      } catch(e) {
+        // If subject column doesn't exist yet, retry without it
+        if (e.message && (e.message.includes("subject") || e.message.includes("column"))) {
+          const { subject, ...bodyWithout } = body;
+          await saveReq(bodyWithout);
+          setMsg("⚠️ Saved! But run this SQL in Supabase: ALTER TABLE tests ADD COLUMN IF NOT EXISTS subject TEXT;");
+          setShowTestForm(null); setEditTest(null); setTestForm(emptyTest);
+          setActiveTab("basic");
+          loadTests(examId);
+          return;
+        }
+        throw e;
       }
       setShowTestForm(null); setEditTest(null); setTestForm(emptyTest);
       setActiveTab("basic");
@@ -3039,7 +3302,7 @@ function AdminExams({ user }) {
     setEditTest(test);
     if (test) {
       const secs = parseSections(test);
-      setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published, sections: secs });
+      setTestForm({ name: test.name, test_type: test.test_type, duration_minutes: test.duration_minutes, total_marks: test.total_marks, negative_value: test.negative_value, instructions: test.instructions || "", is_published: test.is_published, sections: secs, subject: test.subject || "" });
     } else {
       setTestForm(emptyTest);
     }
@@ -3203,10 +3466,21 @@ function AdminExams({ user }) {
                                   <option value="mock">📝 Mock Test (Full)</option>
                                   <option value="sectional">📚 Sectional Test</option>
                                   <option value="pyq">📜 PYQ (Previous Year)</option>
-                                  <option value="practice">🎯 Practice Set</option>
-                                  <option value="speed">⚡ Speed Test</option>
+                                  <option value="practice_set">🎯 Practice Set</option>
+                                  <option value="speed_test">⚡ Speed Test</option>
                                 </select>
                               </div>
+                              {["sectional","practice_set","speed_test"].includes(testForm.test_type) && (
+                                <div>
+                                  <label style={lbl}>Subject <span style={{ color: "#ff6b6b" }}>*</span> <span style={{ color: "#555", fontSize: "11px", textTransform: "none", fontWeight: 400 }}>(used for grouping)</span></label>
+                                  <select value={testForm.subject || ""} onChange={e => setTestForm(p => ({...p, subject: e.target.value}))} style={inp}>
+                                    <option value="">— Select Subject —</option>
+                                    {["English","Odia","Hindi","Mathematics","Logical Reasoning","General Studies","General Knowledge","Computer","Current Affairs","Science","History","Geography","Polity","Economics","Physics","Chemistry","Biology","Environment","Other"].map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
                               <div>
                                 <label style={lbl}>Duration (minutes)</label>
                                 <input type="number" min="1" value={testForm.duration_minutes} onChange={e => setTestForm(p => ({...p, duration_minutes: parseInt(e.target.value)||60}))} style={inp} />
@@ -3560,8 +3834,27 @@ function AdminUsers({ user: adminUser }) {
   const [loadingAttempts, setLoadingAttempts] = useState({});
   const [msg, setMsg] = useState("");
   const [actionLoading, setActionLoading] = useState({});
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
 
-  const inputS = { width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)", color: dark ? "#fff" : "#111", padding: "10px 14px", borderRadius: "8px", fontSize: "14px", outline: "none", marginBottom: "16px", boxSizing: "border-box" };
+  const inputS = { background:dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)", border:dark?"1px solid rgba(255,255,255,0.15)":"1px solid rgba(0,0,0,0.15)", color:dark?"#fff":"#111", padding:"10px 14px", borderRadius:"8px", fontSize:"14px", outline:"none", boxSizing:"border-box" };
+
+  const exportCSV = () => {
+    const rows = [["Name","Phone","State","Target Exam","Attempts","Role","Joined","User ID"]];
+    users.forEach(u => rows.push([
+      u.full_name||"", u.phone||"", u.state||"", u.target_exam||"",
+      u.attempt_count||0,
+      u.isAdmin?"admin":u.isModerator?"moderator":"student",
+      u.created_at?new Date(u.created_at).toLocaleDateString("en-IN"):"",
+      u.id
+    ]));
+    const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+    a.download = `meritmatrix_users_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
 
   const loadUsers = () => {
     setLoading(true);
@@ -3573,9 +3866,10 @@ function AdminUsers({ user: adminUser }) {
       const attemptCounts = {};
       (attemptData || []).forEach(a => { attemptCounts[a.user_id] = (attemptCounts[a.user_id] || 0) + 1; });
       const adminSet = new Set((rolesData || []).filter(r => r.role === "admin").map(r => r.user_id));
-      let enriched = (profileData || []).map(u => ({ ...u, attempt_count: attemptCounts[u.id] || 0, isAdmin: adminSet.has(u.id) }));
+      const modSet = new Set((rolesData || []).filter(r => r.role === "moderator").map(r => r.user_id));
+      let enriched = (profileData || []).map(u => ({ ...u, attempt_count: attemptCounts[u.id] || 0, isAdmin: adminSet.has(u.id), isModerator: modSet.has(u.id) }));
       if (enriched.length === 0 && Object.keys(attemptCounts).length > 0) {
-        enriched = Object.keys(attemptCounts).map(uid => ({ id: uid, full_name: null, phone: null, state: null, target_exam: null, created_at: null, attempt_count: attemptCounts[uid], isAdmin: adminSet.has(uid) }));
+        enriched = Object.keys(attemptCounts).map(uid => ({ id: uid, full_name: null, phone: null, state: null, target_exam: null, created_at: null, attempt_count: attemptCounts[uid], isAdmin: adminSet.has(uid), isModerator: modSet.has(uid) }));
       }
       setUsers(enriched);
       setAttempts(attemptData || []);
@@ -3604,22 +3898,33 @@ function AdminUsers({ user: adminUser }) {
   const setAction = (uid, val) => setActionLoading(p => ({...p, [uid]: val}));
 
   const deleteUser = async (u) => {
-    if (!window.confirm(`Delete user "${u.full_name || u.id}"? This will delete their profile and all attempts. This cannot be undone.`)) return;
     setAction(u.id, "deleting");
+    const errors = [];
+    // 1. Delete attempts
+    try { await supabaseRequest(`/attempts?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }); } catch(e) { errors.push("attempts: " + e.message); }
+    // 2. Delete roles
+    try { await supabaseRequest(`/roles?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }); } catch(e) { errors.push("roles: " + e.message); }
+    // 3. Delete profile (RLS must allow admin delete — see SQL below)
     try {
-      // Delete attempts first
-      await supabaseRequest(`/attempts?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }).catch(() => {});
-      await supabaseRequest(`/profiles?id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }).catch(() => {});
-      await supabaseRequest(`/roles?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" }).catch(() => {});
-      setMsg("✅ User deleted successfully.");
-      setUsers(prev => prev.filter(x => x.id !== u.id));
-    } catch(e) { setMsg("❌ Delete failed: " + e.message); }
+      await supabaseRequest(`/profiles?id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" });
+    } catch(e) {
+      errors.push("profile: " + e.message);
+      setAction(u.id, null);
+      setMsg(`❌ Profile delete failed (${e.message}). Run SQL: CREATE POLICY "Admin delete profiles" ON profiles FOR DELETE USING (EXISTS (SELECT 1 FROM roles WHERE user_id = auth.uid() AND role = 'admin'));`);
+      return;
+    }
+    // All done — remove from UI immediately
+    if (expandedUser === u.id) setExpandedUser(null);
+    setUserAttempts(p => { const n = {...p}; delete n[u.id]; return n; });
+    setUsers(prev => prev.filter(x => x.id !== u.id));
+    setMsg(errors.length > 0 ? `⚠️ Deleted but some errors: ${errors.join(", ")}` : "✅ User deleted successfully.");
     setAction(u.id, null);
   };
 
   const deleteAttempts = async (u) => {
-    if (!window.confirm(`Delete ALL attempts for "${u.full_name || u.id}"? This cannot be undone.`)) return;
-    setAction(u.id, "clearing");
+    setConfirmAction({ label: "Clear all attempts", desc: `This will permanently delete all ${u.attempt_count} attempts for ${u.full_name || "this user"}. Cannot be undone.`, danger: true, onConfirm: async () => {
+      setConfirmAction(null);
+      setAction(u.id, "clearing");
     try {
       await supabaseRequest(`/attempts?user_id=eq.${u.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" });
       setMsg("✅ All attempts cleared.");
@@ -3627,12 +3932,14 @@ function AdminUsers({ user: adminUser }) {
       setUsers(prev => prev.map(x => x.id === u.id ? {...x, attempt_count: 0} : x));
     } catch(e) { setMsg("❌ " + e.message); }
     setAction(u.id, null);
+    }});
   };
 
   const toggleAdmin = async (u) => {
     const making = !u.isAdmin;
-    if (!window.confirm(`${making ? "Grant admin access" : "Revoke admin access"} for "${u.full_name || u.id}"?`)) return;
-    setAction(u.id, "role");
+    setConfirmAction({ label: making ? "Grant Admin Access" : "Revoke Admin Access", desc: making ? `${u.full_name || "This user"} will get full admin access to the panel.` : `${u.full_name || "This user"} will lose admin access.`, danger: !making, onConfirm: async () => {
+      setConfirmAction(null);
+      setAction(u.id, "role");
     try {
       if (making) {
         await supabaseRequest("/roles", { method: "POST", body: { user_id: u.id, role: "admin" }, token: adminUser.token });
@@ -3643,13 +3950,48 @@ function AdminUsers({ user: adminUser }) {
       setUsers(prev => prev.map(x => x.id === u.id ? {...x, isAdmin: making} : x));
     } catch(e) { setMsg("❌ " + e.message); }
     setAction(u.id, null);
+    }});
   };
 
-  const filtered = users.filter(u =>
-    (u.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
-    (u.phone || "").includes(search) ||
-    (u.id || "").includes(search)
-  );
+  const toggleModerator = async (u) => {
+    const making = !u.isModerator;
+    setConfirmAction({ label: making ? "Grant Moderator Access" : "Revoke Moderator Access", desc: making ? `${u.full_name || "This user"} will be able to create/edit exams and tests only. No user management.` : `${u.full_name || "This user"} will lose moderator access.`, danger: !making, onConfirm: async () => {
+      setConfirmAction(null);
+      setAction(u.id, "mod");
+      try {
+        if (making) {
+          await supabaseRequest("/roles", { method: "POST", body: { user_id: u.id, role: "moderator" }, token: adminUser.token });
+        } else {
+          await supabaseRequest(`/roles?user_id=eq.${u.id}&role=eq.moderator`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" });
+        }
+        setMsg(`✅ ${making ? "Moderator access granted." : "Moderator access revoked."}`);
+        setUsers(prev => prev.map(x => x.id === u.id ? {...x, isModerator: making} : x));
+      } catch(e) { setMsg("❌ " + e.message); }
+      setAction(u.id, null);
+    }});
+  };
+
+  const filtered = users
+    .filter(u => {
+      const q = search.toLowerCase();
+      const matchSearch = !q ||
+        (u.full_name||"").toLowerCase().includes(q) ||
+        (u.phone||"").includes(q) ||
+        (u.id||"").includes(q) ||
+        (u.state||"").toLowerCase().includes(q) ||
+        (u.target_exam||"").toLowerCase().includes(q);
+      const matchRole = roleFilter==="all" ? true
+        : roleFilter==="admin" ? u.isAdmin
+        : roleFilter==="mod" ? u.isModerator && !u.isAdmin
+        : !u.isAdmin && !u.isModerator;
+      return matchSearch && matchRole;
+    })
+    .sort((a,b) => {
+      if (sortBy==="attempts") return (b.attempt_count||0)-(a.attempt_count||0);
+      if (sortBy==="name") return (a.full_name||"").localeCompare(b.full_name||"");
+      if (sortBy==="oldest") return new Date(a.created_at||0)-new Date(b.created_at||0);
+      return new Date(b.created_at||0)-new Date(a.created_at||0);
+    });
 
   const btnS = (bg, col, border) => ({
     background: bg, border, color: col,
@@ -3660,24 +4002,64 @@ function AdminUsers({ user: adminUser }) {
 
   return (
     <div style={{ maxWidth: "1000px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
-        <div>
-          <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, margin: 0 }}>Users & Management</h1>
-          <p style={{ color: "#555", fontSize: "13px", marginTop: "4px" }}>Delete users, clear attempts, toggle admin roles</p>
+      {/* Confirm Modal */}
+      {confirmAction && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:10000, display:"flex", alignItems:"center", justifyContent:"center", padding:"20px" }}>
+          <div style={{ background: dark?"#0f1120":"#fff", border: dark?"1px solid rgba(255,255,255,0.1)":"1px solid rgba(0,0,0,0.12)", borderRadius:"16px", padding:"28px", maxWidth:"380px", width:"100%", boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ fontSize:"2rem", textAlign:"center", marginBottom:"12px" }}>{confirmAction.danger ? "⚠️" : "✅"}</div>
+            <h3 style={{ color: dark?"#fff":"#111", fontFamily:"'Sora',sans-serif", fontWeight:800, textAlign:"center", margin:"0 0 8px", fontSize:"1.1rem" }}>{confirmAction.label}</h3>
+            <p style={{ color: dark?"#666":"#888", fontSize:"13px", textAlign:"center", lineHeight:1.6, margin:"0 0 24px" }}>{confirmAction.desc}</p>
+            <div style={{ display:"flex", gap:"10px" }}>
+              <button onClick={() => setConfirmAction(null)} style={{ flex:1, background:"transparent", border: dark?"1px solid rgba(255,255,255,0.12)":"1px solid rgba(0,0,0,0.15)", color: dark?"#aaa":"#555", padding:"11px", borderRadius:"8px", cursor:"pointer", fontSize:"14px", fontWeight:600 }}>Cancel</button>
+              <button onClick={confirmAction.onConfirm} style={{ flex:1, background: confirmAction.danger?"linear-gradient(135deg,#ff4444,#cc0000)":"linear-gradient(135deg,#4ade80,#22c55e)", border:"none", color:"#fff", padding:"11px", borderRadius:"8px", cursor:"pointer", fontSize:"14px", fontWeight:800 }}>Confirm</button>
+            </div>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <div style={{ background: "rgba(129,140,248,0.15)", border: "1px solid rgba(129,140,248,0.3)", color: "#818cf8", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>👥 {users.length} Users</div>
-          <div style={{ background: "rgba(255,215,0,0.15)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "6px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 700 }}>📝 {attempts.length} Attempts</div>
+      )}
+
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"20px", flexWrap:"wrap", gap:"12px" }}>
+        <div>
+          <h1 style={{ color:dark?"#fff":"#111", fontFamily:"'Sora',sans-serif", fontWeight:800, margin:0 }}>Users & Management</h1>
+          <p style={{ color:"#555", fontSize:"13px", marginTop:"4px" }}>
+            <span style={{color:"#ff6b6b"}}>{users.filter(u=>u.isAdmin).length} admins</span>
+            {" · "}
+            <span style={{color:"#22d3ee"}}>{users.filter(u=>u.isModerator&&!u.isAdmin).length} mods</span>
+            {" · "}
+            <span style={{color:"#818cf8"}}>{users.filter(u=>!u.isAdmin&&!u.isModerator).length} students</span>
+            {" · "}
+            <span style={{color:"#FFD700"}}>{attempts.length} total attempts</span>
+          </p>
+        </div>
+        <div style={{ display:"flex", gap:"8px", flexWrap:"wrap" }}>
+          <button onClick={exportCSV} title="Export all users to CSV" style={{ background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.25)", color:"#4ade80", padding:"7px 14px", borderRadius:"8px", fontSize:"12px", fontWeight:700, cursor:"pointer" }}>⬇ Export CSV</button>
+          <button onClick={loadUsers} title="Refresh user list" style={{ background:"rgba(255,255,255,0.05)", border:dark?"1px solid rgba(255,255,255,0.1)":"1px solid rgba(0,0,0,0.1)", color:"#666", padding:"7px 12px", borderRadius:"8px", fontSize:"12px", cursor:"pointer" }}>↻ Refresh</button>
         </div>
       </div>
 
       {msg && (
-        <div onClick={() => setMsg("")} style={{ color: msg.startsWith("✅") ? "#4ade80" : "#ff6b6b", marginBottom: "16px", fontSize: "13px", cursor: "pointer", padding: "10px 14px", background: msg.startsWith("✅") ? "rgba(74,222,128,0.08)" : "rgba(255,50,50,0.08)", borderRadius: "8px", border: msg.startsWith("✅") ? "1px solid rgba(74,222,128,0.25)" : "1px solid rgba(255,50,50,0.25)" }}>
+        <div onClick={() => setMsg("")} style={{ color:msg.startsWith("✅")?"#4ade80":"#ff6b6b", marginBottom:"16px", fontSize:"13px", cursor:"pointer", padding:"10px 14px", background:msg.startsWith("✅")?"rgba(74,222,128,0.08)":"rgba(255,50,50,0.08)", borderRadius:"8px", border:msg.startsWith("✅")?"1px solid rgba(74,222,128,0.25)":"1px solid rgba(255,50,50,0.25)" }}>
           {msg} <span style={{float:"right",opacity:0.5}}>✕ dismiss</span>
         </div>
       )}
 
-      <input placeholder="🔍 Search by name, phone or user ID..." value={search} onChange={e => setSearch(e.target.value)} style={inputS} />
+      {/* Search + Filter + Sort */}
+      <div style={{ display:"flex", gap:"8px", marginBottom:"12px", flexWrap:"wrap" }}>
+        <input placeholder="🔍 Search name, phone, state, exam, ID…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputS, flex:1, minWidth:"180px" }} />
+        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ ...inputS, width:"auto", cursor:"pointer" }}>
+          <option value="all">All Roles</option>
+          <option value="admin">Admins only</option>
+          <option value="mod">Moderators only</option>
+          <option value="student">Students only</option>
+        </select>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ ...inputS, width:"auto", cursor:"pointer" }}>
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="attempts">Most Attempts</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
+      {(search || roleFilter !== "all") && <div style={{ color:"#555", fontSize:"12px", marginBottom:"10px" }}>Showing {filtered.length} of {users.length} users</div>}
 
       {loading ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
@@ -3701,6 +4083,7 @@ function AdminUsers({ user: adminUser }) {
                       <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                         <span style={{ color: dark ? "#fff" : "#111", fontWeight: 600, fontSize: "14px" }}>{u.full_name || <span style={{color:"#555"}}>No name</span>}</span>
                         {u.isAdmin && <span style={{ background: "rgba(255,50,50,0.15)", border: "1px solid rgba(255,50,50,0.3)", color: "#ff6b6b", fontSize: "9px", fontWeight: 800, padding: "1px 6px", borderRadius: "10px", letterSpacing: "1px" }}>ADMIN</span>}
+                        {u.isModerator && !u.isAdmin && <span style={{ background: "rgba(34,211,238,0.12)", border: "1px solid rgba(34,211,238,0.3)", color: "#22d3ee", fontSize: "9px", fontWeight: 800, padding: "1px 6px", borderRadius: "10px", letterSpacing: "1px" }}>MOD</span>}
                         {isSelf && <span style={{ background: "rgba(255,215,0,0.12)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", fontSize: "9px", fontWeight: 800, padding: "1px 6px", borderRadius: "10px" }}>YOU</span>}
                       </div>
                       <div style={{ color: "#555", fontSize: "11px", display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
@@ -3734,6 +4117,13 @@ function AdminUsers({ user: adminUser }) {
                       </button>
                     )}
 
+                    {/* Toggle Moderator */}
+                    {!isSelf && !u.isAdmin && (
+                      <button onClick={() => toggleModerator(u)} disabled={!!isLoading}
+                        style={btnS(u.isModerator ? "rgba(34,211,238,0.1)" : "rgba(34,211,238,0.08)", u.isModerator ? "#22d3ee" : "#22d3ee99", u.isModerator ? "1px solid rgba(34,211,238,0.35)" : "1px solid rgba(34,211,238,0.2)")}>
+                        {isLoading === "mod" ? "..." : u.isModerator ? "⬇ Revoke Mod" : "🛡 Make Mod"}
+                      </button>
+                    )}
                     {/* Toggle Admin — can't revoke your own admin */}
                     {!isSelf && (
                       <button onClick={() => toggleAdmin(u)} disabled={!!isLoading}
@@ -3744,7 +4134,7 @@ function AdminUsers({ user: adminUser }) {
 
                     {/* Delete User — can't delete yourself */}
                     {!isSelf && (
-                      <button onClick={() => deleteUser(u)} disabled={!!isLoading}
+                      <button onClick={() => setConfirmAction({ label: "Delete User", desc: `Permanently delete ${u.full_name || "this user"} and all their data. This cannot be undone.`, danger: true, onConfirm: () => deleteUser(u) })} disabled={!!isLoading}
                         style={btnS("rgba(255,30,30,0.12)", "#ff4444", "1px solid rgba(255,30,30,0.35)")}>
                         {isLoading === "deleting" ? "..." : "🗑 Delete"}
                       </button>
@@ -3777,17 +4167,16 @@ function AdminUsers({ user: adminUser }) {
                                   <div style={{ color: pct >= 60 ? "#4ade80" : pct >= 40 ? "#fb923c" : "#ff6b6b", fontWeight: 700, fontSize: "15px" }}>{pct}%</div>
                                   <div style={{ color: "#555", fontSize: "10px" }}>{a.score}/{a.total_marks}</div>
                                 </div>
-                                <button onClick={async () => {
-                                  if (!window.confirm("Delete this attempt permanently?")) return;
+                                <button onClick={() => setConfirmAction({ label: "Delete Attempt", desc: `Remove this attempt from ${u.full_name || "this user"}'s history permanently.`, danger: true, onConfirm: async () => {
+                                  setConfirmAction(null);
                                   try {
                                     await supabaseRequest(`/attempts?id=eq.${a.id}`, { method: "DELETE", token: adminUser.token, prefer: "return=minimal" });
-                                    // Update local cache immediately
                                     const remaining = (userAttempts[u.id]||[]).filter(x => x.id !== a.id);
                                     setUserAttempts(p => ({...p, [u.id]: remaining}));
                                     setUsers(prev => prev.map(x => x.id === u.id ? {...x, attempt_count: remaining.length} : x));
                                     setMsg("✅ Attempt deleted.");
                                   } catch { setMsg("❌ Failed to delete attempt."); }
-                                }} style={{ background: "rgba(255,30,30,0.12)", border: "1px solid rgba(255,30,30,0.3)", color: "#ff4444", padding: "3px 9px", borderRadius: "5px", cursor: "pointer", fontSize: "11px", fontWeight: 700 }}>🗑</button>
+                                }})} style={{ background: "rgba(255,30,30,0.12)", border: "1px solid rgba(255,30,30,0.3)", color: "#ff4444", padding: "3px 9px", borderRadius: "5px", cursor: "pointer", fontSize: "11px", fontWeight: 700 }}>🗑</button>
                               </div>
                             </div>
                           );
@@ -3867,8 +4256,12 @@ function AdminQuestions({ user }) {
   // --- UPLOAD IMAGE HELPER ---
   const uploadImg = async (file, token) => {
     if (!file) return null;
-    const ext = file.name.split('.').pop();
-    const name = `${Date.now()}_${Math.random().toString(36).substring(2,8)}.${ext}`;
+    // Validate file type
+    if (!file.type.startsWith("image/")) throw new Error("Only image files are allowed");
+    // Validate size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) throw new Error("Image must be under 5MB");
+    const ext = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : file.name.split(".").pop().toLowerCase();
+    const name = `q_${Date.now()}_${Math.random().toString(36).substring(2,8)}.${ext}`;
     return supabaseUpload("question_images", name, file, token);
   };
 
@@ -3932,27 +4325,33 @@ function AdminQuestions({ user }) {
     setMsg("✏️ Editing question — make changes and click Update.");
   };
 
+  const [qConfirm, setQConfirm] = useState(null); // {label, desc, onConfirm}
+
   // --- DELETE QUESTION ---
-  const handleDeleteQ = async (id) => {
-    if (!window.confirm("Delete this question permanently?")) return;
-    try {
-      await supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token });
-      setExistingQs(prev => prev.filter(q => q.id !== id));
-      setBulkSelect(prev => prev.filter(x => x !== id));
-      setMsg("✅ Question deleted.");
-    } catch(e) { setMsg("❌ " + e.message); }
+  const handleDeleteQ = (id) => {
+    setQConfirm({ label: "Delete Question?", desc: "This question will be permanently removed.", onConfirm: async () => {
+      setQConfirm(null);
+      try {
+        await supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token });
+        setExistingQs(prev => prev.filter(q => q.id !== id));
+        setBulkSelect(prev => prev.filter(x => x !== id));
+        setMsg("✅ Question deleted.");
+      } catch(e) { setMsg("❌ " + e.message); }
+    }});
   };
 
   // --- BULK DELETE ---
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (!bulkSelect.length) return;
-    if (!window.confirm(`Delete ${bulkSelect.length} selected questions?`)) return;
-    try {
-      await Promise.all(bulkSelect.map(id => supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token })));
-      setExistingQs(prev => prev.filter(q => !bulkSelect.includes(q.id)));
-      setBulkSelect([]);
-      setMsg(`✅ Deleted ${bulkSelect.length} questions.`);
-    } catch(e) { setMsg("❌ " + e.message); }
+    setQConfirm({ label: `Delete ${bulkSelect.length} Questions?`, desc: `Permanently remove ${bulkSelect.length} selected questions. Cannot be undone.`, onConfirm: async () => {
+      setQConfirm(null);
+      try {
+        await Promise.all(bulkSelect.map(id => supabaseRequest(`/questions?id=eq.${id}`, { method: "DELETE", token: user.token })));
+        setExistingQs(prev => prev.filter(q => !bulkSelect.includes(q.id)));
+        setBulkSelect([]);
+        setMsg(`✅ Deleted ${bulkSelect.length} questions.`);
+      } catch(e) { setMsg("❌ " + e.message); }
+    }});
   };
 
   // --- DUPLICATE QUESTION ---
@@ -4115,6 +4514,20 @@ ${aiRawText}`
 
   return (
     <div style={{ maxWidth: "900px" }}>
+      {/* Confirm Delete Modal */}
+      {qConfirm && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px" }}>
+          <div style={{ background:dark?"#0f1120":"#fff",border:dark?"1px solid rgba(255,255,255,0.1)":"1px solid rgba(0,0,0,0.12)",borderRadius:"16px",padding:"28px",maxWidth:"360px",width:"100%",boxShadow:"0 24px 60px rgba(0,0,0,0.5)",textAlign:"center" }}>
+            <div style={{fontSize:"2.5rem",marginBottom:"12px"}}>⚠️</div>
+            <h3 style={{color:dark?"#fff":"#111",fontFamily:"'Sora',sans-serif",fontWeight:800,margin:"0 0 8px"}}>{qConfirm.label}</h3>
+            <p style={{color:"#666",fontSize:"13px",lineHeight:1.6,margin:"0 0 24px"}}>{qConfirm.desc}</p>
+            <div style={{display:"flex",gap:"10px"}}>
+              <button onClick={() => setQConfirm(null)} style={{flex:1,background:"transparent",border:dark?"1px solid rgba(255,255,255,0.12)":"1px solid rgba(0,0,0,0.15)",color:dark?"#aaa":"#555",padding:"11px",borderRadius:"8px",cursor:"pointer",fontWeight:600}}>Cancel</button>
+              <button onClick={qConfirm.onConfirm} style={{flex:1,background:"linear-gradient(135deg,#ff4444,#cc0000)",border:"none",color:"#fff",padding:"11px",borderRadius:"8px",cursor:"pointer",fontWeight:800}}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
       <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, marginBottom: "6px" }}>Question Manager</h1>
       <p style={{ color: "#666", fontSize: "13px", marginBottom: "20px" }}>Add questions manually, via file, or paste raw text and let AI parse it automatically.</p>
 
@@ -4501,30 +4914,32 @@ Img: https://...optional
 // ADMIN PANEL
 function AdminPanel({ user }) {
   const dark = useTheme();
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState(user?.isAdmin ? "overview" : "exams");
   const [metrics, setMetrics] = useState({ users: "—", tests: "—", attempts: "—", questions: "—", orgs: "—" });
   const [recentAttempts, setRecentAttempts] = useState([]);
+  const [recentUsers, setRecentUsers] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
 
   const refreshMetrics = () => {
     if (!user?.isAdmin) return;
     setMetricsLoading(true);
+    // Use count=exact header for true counts (no wasted data transfer)
+    const countOnly = (table) => fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id`, {
+      headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${user.token}`, "Prefer": "count=exact", "Range": "0-0" }
+    }).then(r => parseInt(r.headers.get("content-range")?.split("/")[1] || "0")).catch(() => 0);
     const safe = (p) => p.catch(() => []);
     Promise.all([
-      safe(supabaseRequest("/profiles?select=id", { token: user.token })),
-      safe(supabaseRequest("/tests?select=id", { token: user.token })),
-      safe(supabaseRequest("/attempts?select=id,user_id,score,total_marks,status,created_at,correct_count,wrong_count,unattempted_count,tests(name)&order=created_at.desc&limit=10", { token: user.token })),
-      safe(supabaseRequest("/questions?select=id", { token: user.token })),
-      safe(supabaseRequest("/organizations?select=id", { token: user.token })),
-    ]).then(([uD, tD, aD, qD, oD]) => {
-      setMetrics({
-        users: Array.isArray(uD) ? uD.length : "—",
-        tests: Array.isArray(tD) ? tD.length : "—",
-        attempts: Array.isArray(aD) ? aD.length : "—",
-        questions: Array.isArray(qD) ? qD.length : "—",
-        orgs: Array.isArray(oD) ? oD.length : "—",
-      });
-      setRecentAttempts(Array.isArray(aD) ? aD : []);
+      countOnly("profiles"),
+      countOnly("tests"),
+      countOnly("attempts"),
+      countOnly("questions"),
+      countOnly("organizations"),
+      safe(supabaseRequest("/attempts?select=id,user_id,score,total_marks,status,created_at,correct_count,wrong_count,tests(name)&order=created_at.desc&limit=12", { token: user.token })),
+      safe(supabaseRequest("/profiles?select=id,full_name,state,target_exam,created_at&order=created_at.desc&limit=6", { token: user.token })),
+    ]).then(([uC, tC, aC, qC, oC, recentA, recentU]) => {
+      setMetrics({ users: uC, tests: tC, attempts: aC, questions: qC, orgs: oC });
+      setRecentAttempts(Array.isArray(recentA) ? recentA : []);
+      setRecentUsers(Array.isArray(recentU) ? recentU : []);
       setMetricsLoading(false);
     });
   };
@@ -4533,25 +4948,35 @@ function AdminPanel({ user }) {
     if (user?.isAdmin && activeSection === "overview") refreshMetrics();
   }, [user, activeSection]);
 
-  if (!user?.isAdmin) {
+  // Moderators get limited access
+  const [isMod, setIsMod] = useState(false);
+  useEffect(() => {
+    if (user && !user.isAdmin) {
+      supabaseRequest(`/roles?user_id=eq.${user.id}&role=eq.moderator&select=role`, { token: user.token })
+        .then(r => { if (r?.length > 0) setIsMod(true); })
+        .catch(() => {});
+    }
+  }, [user]);
+
+  if (!user?.isAdmin && !isMod) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 1rem" }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: "4rem", marginBottom: "16px" }}>🔒</div>
           <h2 style={{ color: "#ff6b6b", fontFamily: "'Sora',sans-serif" }}>Access Denied</h2>
-          <p style={{ color: "#666" }}>Admin access only.</p>
+          <p style={{ color: "#666" }}>Admin or Moderator access only.</p>
         </div>
       </div>
     );
   }
 
   const SECTIONS = [
-    { key: "overview", icon: "📊", label: "Overview" },
-    { key: "questions", icon: "❓", label: "Questions" },
-    { key: "exams", icon: "📚", label: "Exams & Tests" },
-    { key: "organizations", icon: "🏛", label: "Organizations" },
-    { key: "users", icon: "👥", label: "Users" },
-  ];
+    { key: "overview", icon: "📊", label: "Overview",       adminOnly: false },
+    { key: "questions", icon: "❓", label: "Questions",     adminOnly: true  },
+    { key: "exams", icon: "📚", label: "Exams & Tests",     adminOnly: false },
+    { key: "organizations", icon: "🏛", label: "Organizations", adminOnly: true },
+    { key: "users", icon: "👥", label: "Users",             adminOnly: true  },
+  ].filter(s => user?.isAdmin || !s.adminOnly);
 
   return (
     <div style={{ padding: "60px 0 0", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -4560,22 +4985,50 @@ function AdminPanel({ user }) {
         <select value={activeSection} onChange={e => setActiveSection(e.target.value)}
           style={{ width: "100%", background: dark ? "rgba(255,255,255,0.06)" : "#fff", border: "1px solid rgba(255,50,50,0.3)", color: dark ? "#fff" : "#111", padding: "10px 12px", borderRadius: "8px", fontSize: "14px", outline: "none" }}>
           {SECTIONS.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+          {/* SECTIONS already filtered by role */}
         </select>
       </div>
 
       <div style={{ display: "flex", flex: 1 }}>
         {/* Sidebar */}
-        <div style={{ width: "210px", flexShrink: 0, background: dark ? "rgba(255,50,50,0.04)" : "rgba(255,50,50,0.02)", borderRight: dark ? "1px solid rgba(255,50,50,0.12)" : "1px solid rgba(255,50,50,0.1)", padding: "20px 0", position: "sticky", top: 60, height: "calc(100vh - 60px)", overflowY: "auto" }} className="admin-sidebar">
-          <div style={{ padding: "0 16px 20px", color: "#ff6b6b", fontSize: "11px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase" }}>Admin Panel</div>
-          {SECTIONS.map(s => (
-            <button key={s.key} onClick={() => setActiveSection(s.key)} style={{ width: "100%", padding: "12px 16px", background: activeSection===s.key ? "rgba(255,50,50,0.1)" : "transparent", border: "none", borderLeft: activeSection===s.key ? "3px solid #ff6b6b" : "3px solid transparent", color: activeSection===s.key ? "#ff6b6b" : (dark?"#777":"#888"), cursor: "pointer", textAlign: "left", fontSize: "14px", display: "flex", alignItems: "center", gap: "10px", transition: "all 0.15s" }}>
-              <span>{s.icon}</span><span>{s.label}</span>
-            </button>
-          ))}
-          <div style={{ margin: "20px 16px 0", height: "1px", background: "rgba(255,255,255,0.06)" }} />
-          <div style={{ padding: "16px", fontSize: "11px", color: "#444" }}>
-            <div style={{ marginBottom: "4px" }}>Logged in as:</div>
-            <div style={{ color: "#666", wordBreak: "break-all" }}>{user.email}</div>
+        <div style={{ width: "220px", flexShrink: 0, background: dark ? "rgba(255,50,50,0.04)" : "rgba(255,50,50,0.02)", borderRight: dark ? "1px solid rgba(255,50,50,0.12)" : "1px solid rgba(255,50,50,0.1)", padding: "20px 0", position: "sticky", top: 60, height: "calc(100vh - 60px)", overflowY: "auto" }} className="admin-sidebar">
+          {/* Panel title */}
+          <div style={{ padding: "0 16px 16px" }}>
+            <div style={{ color: "#ff6b6b", fontSize: "11px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase" }}>{user?.isAdmin ? "⚙ Admin Panel" : "🛡 Mod Panel"}</div>
+            {!user?.isAdmin && isMod && <div style={{ color: "#22d3ee", fontSize: "10px", marginTop:"4px" }}>Exams & Tests only</div>}
+          </div>
+
+          {/* Nav items with metric badges */}
+          {SECTIONS.map(s => {
+            const badge = user?.isAdmin ? {
+              overview: null,
+              questions: metrics.questions !== "—" ? metrics.questions : null,
+              exams: metrics.tests !== "—" ? metrics.tests : null,
+              organizations: metrics.orgs !== "—" ? metrics.orgs : null,
+              users: metrics.users !== "—" ? metrics.users : null,
+            }[s.key] : null;
+            const isActive = activeSection === s.key;
+            return (
+              <button key={s.key} onClick={() => setActiveSection(s.key)}
+                style={{ width:"100%", padding:"11px 16px", background:isActive?"rgba(255,50,50,0.12)":"transparent", border:"none", borderLeft:isActive?"3px solid #ff6b6b":"3px solid transparent", color:isActive?"#ff6b6b":(dark?"#777":"#888"), cursor:"pointer", textAlign:"left", fontSize:"14px", display:"flex", alignItems:"center", gap:"10px", transition:"all 0.15s" }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = dark?"#aaa":"#555"; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = dark?"#777":"#888"; }}>
+                <span style={{ fontSize: "15px" }}>{s.icon}</span>
+                <span style={{ flex: 1 }}>{s.label}</span>
+                {badge !== null && badge !== undefined && (
+                  <span style={{ background:isActive?"rgba(255,100,100,0.2)":"rgba(255,255,255,0.06)", color:isActive?"#ff9999":"#555", fontSize:"10px", fontWeight:700, padding:"1px 7px", borderRadius:"10px", minWidth:"24px", textAlign:"center" }}>{badge}</span>
+                )}
+              </button>
+            );
+          })}
+
+          <div style={{ margin: "16px 16px 0", height: "1px", background: "rgba(255,255,255,0.06)" }} />
+
+          {/* Admin info + last refresh */}
+          <div style={{ padding: "14px 16px", fontSize: "11px" }}>
+            <div style={{ color: "#444", marginBottom: "2px" }}>Signed in as</div>
+            <div style={{ color: "#666", wordBreak: "break-all", marginBottom: "10px" }}>{user.email}</div>
+            {metricsLoading && <div style={{ color: "#555", fontSize: "10px", display:"flex", alignItems:"center", gap:"4px" }}><span style={{animation:"spin 1s linear infinite", display:"inline-block"}}>↻</span> Refreshing…</div>}
           </div>
         </div>
 
@@ -4583,91 +5036,120 @@ function AdminPanel({ user }) {
         <div style={{ flex: 1, padding: "28px", minWidth: 0, overflowX: "hidden" }} className="admin-main-content">
 
           {/* OVERVIEW */}
-          {activeSection === "overview" && (
+          {activeSection === "overview" && user?.isAdmin && (
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
+              {/* Header */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"24px", flexWrap:"wrap", gap:"12px" }}>
                 <div>
-                  <h1 style={{ color: dark ? "#fff" : "#111", fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: "24px", margin: 0 }}>Dashboard Overview</h1>
-                  <p style={{ color: "#666", fontSize: "13px", marginTop: "4px" }}>Platform at a glance</p>
+                  <h1 style={{ color:dark?"#fff":"#111", fontFamily:"'Sora',sans-serif", fontWeight:800, fontSize:"24px", margin:0 }}>Dashboard Overview</h1>
+                  <p style={{ color:"#666", fontSize:"13px", marginTop:"4px" }}>{new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</p>
                 </div>
-                <button onClick={refreshMetrics} disabled={metricsLoading} style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(255,215,0,0.1)", border: "1px solid rgba(255,215,0,0.3)", color: "#FFD700", padding: "8px 16px", borderRadius: "8px", cursor: metricsLoading ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 700, opacity: metricsLoading ? 0.6 : 1, transition: "all 0.2s" }}>
-                  <span style={{ display: "inline-block", animation: metricsLoading ? "spin 1s linear infinite" : "none" }}>↻</span>
+                <button onClick={refreshMetrics} disabled={metricsLoading} style={{ display:"flex", alignItems:"center", gap:"6px", background:"rgba(255,215,0,0.1)", border:"1px solid rgba(255,215,0,0.3)", color:"#FFD700", padding:"8px 16px", borderRadius:"8px", cursor:metricsLoading?"not-allowed":"pointer", fontSize:"13px", fontWeight:700, opacity:metricsLoading?0.6:1 }}>
+                  <span style={{ display:"inline-block", animation:metricsLoading?"spin 1s linear infinite":"none" }}>↻</span>
                   {metricsLoading ? "Refreshing..." : "Refresh"}
                 </button>
               </div>
 
-              {/* Metric cards */}
-              <div className="admin-metric-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: "12px", marginBottom: "28px" }}>
+              {/* Metric cards — clickable, navigate to section */}
+              <div className="admin-metric-grid" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:"12px", marginBottom:"20px" }}>
                 {[
-                  ["👥 Users", metrics.users, "#818cf8"],
-                  ["📚 Tests", metrics.tests, "#4ade80"],
-                  ["📝 Attempts", metrics.attempts, "#FFD700"],
-                  ["❓ Questions", metrics.questions, "#fb923c"],
-                  ["🏛 Orgs", metrics.orgs, "#38bdf8"],
-                ].map(([l,v,c]) => (
-                  <div key={l} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "14px", padding: "20px", boxShadow: dark?"none":"0 2px 8px rgba(0,0,0,0.05)" }}>
-                    <div style={{ color: dark ? "#555" : "#888", fontSize: "12px", marginBottom: "8px" }}>{l}</div>
-                    <div style={{ color: c, fontSize: "2rem", fontWeight: 900, fontFamily: "'Sora',sans-serif" }}>{metricsLoading ? "…" : v}</div>
+                  ["👥 Users", metrics.users, "#818cf8", "users"],
+                  ["📚 Tests", metrics.tests, "#4ade80", "exams"],
+                  ["📝 Attempts", metrics.attempts, "#FFD700", "users"],
+                  ["❓ Questions", metrics.questions, "#fb923c", "questions"],
+                  ["🏛 Orgs", metrics.orgs, "#38bdf8", "organizations"],
+                ].map(([l,v,c,sec]) => (
+                  <div key={l} onClick={() => setActiveSection(sec)} style={{ background:dark?"rgba(255,255,255,0.04)":"#fff", border:dark?`1px solid ${c}20`:"1px solid rgba(0,0,0,0.08)", borderRadius:"14px", padding:"18px 20px", cursor:"pointer", transition:"all 0.15s", boxShadow:dark?"none":"0 2px 8px rgba(0,0,0,0.04)" }}
+                    onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.borderColor=c+"55";}}
+                    onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.borderColor=dark?c+"20":"rgba(0,0,0,0.08)";}}>
+                    <div style={{ color:dark?"#555":"#888", fontSize:"11px", marginBottom:"8px", textTransform:"uppercase", letterSpacing:"0.5px" }}>{l}</div>
+                    <div style={{ color:c, fontSize:"2rem", fontWeight:900, fontFamily:"'Sora',sans-serif" }}>{metricsLoading?"…":v}</div>
+                    <div style={{ color:c, fontSize:"10px", marginTop:"4px", opacity:0.6 }}>→ manage</div>
                   </div>
                 ))}
               </div>
 
-              {/* Quick actions */}
-              <div style={{ marginBottom: "28px" }}>
-                <div style={{ color: dark ? "#555" : "#888", fontSize: "11px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "12px" }}>Quick Actions</div>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              {/* Quick Actions */}
+              <div style={{ marginBottom:"24px" }}>
+                <div style={{ color:dark?"#444":"#999", fontSize:"11px", fontWeight:700, letterSpacing:"1.5px", textTransform:"uppercase", marginBottom:"10px" }}>Quick Actions</div>
+                <div style={{ display:"flex", gap:"8px", flexWrap:"wrap" }}>
                   {[
-                    ["➕ Add Questions", "questions", "linear-gradient(135deg,#FFD700,#FF8C00)", "#000"],
-                    ["📚 Manage Exams", "exams", "rgba(74,222,128,0.15)", "#4ade80"],
-                    ["👥 View Users", "users", "rgba(129,140,248,0.15)", "#818cf8"],
-                  ].map(([l, sec, bg, col]) => (
-                    <button key={sec} onClick={() => setActiveSection(sec)} style={{ background: bg, border: "none", color: col, padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>{l}</button>
+                    ["➕ Add Questions","questions","linear-gradient(135deg,#FFD700,#FF8C00)","#000","none"],
+                    ["📚 Manage Exams","exams","rgba(74,222,128,0.12)","#4ade80","1px solid rgba(74,222,128,0.25)"],
+                    ["👥 Manage Users","users","rgba(129,140,248,0.12)","#818cf8","1px solid rgba(129,140,248,0.25)"],
+                    ["🏛 Organizations","organizations","rgba(56,189,248,0.12)","#38bdf8","1px solid rgba(56,189,248,0.25)"],
+                  ].map(([l,sec,bg,col,border]) => (
+                    <button key={sec} onClick={() => setActiveSection(sec)} style={{ background:bg, border, color:col, padding:"9px 18px", borderRadius:"8px", cursor:"pointer", fontWeight:700, fontSize:"13px", transition:"all 0.15s" }}>{l}</button>
                   ))}
                 </div>
               </div>
 
-              {/* Recent attempts */}
-              <div>
-                <div style={{ color: dark ? "#555" : "#888", fontSize: "11px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "14px" }}>Recent Attempts</div>
-                {metricsLoading ? (
-                  <div style={{ color: "#555", padding: "20px" }}>Loading...</div>
-                ) : recentAttempts.length === 0 ? (
-                  <div style={{ color: "#555", padding: "20px", textAlign: "center" }}>No attempts yet.</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {recentAttempts.map(a => {
-                      const pct = a.total_marks > 0 ? Math.round((a.score / a.total_marks) * 100) : 0;
-                      return (
-                        <div key={a.id} style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: dark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(0,0,0,0.08)", borderRadius: "10px", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                          <div>
-                            <div style={{ color: dark ? "#ddd" : "#111", fontSize: "13px", fontWeight: 600 }}>{a.tests?.name || "Unknown Test"}</div>
-                            <div style={{ color: "#555", fontSize: "11px" }}>
-                              {a.user_id?.substring(0,8)}... • {new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+              {/* Two-column: Recent Attempts + Recent Signups */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"20px" }} className="admin-two-col">
+                {/* Recent Attempts */}
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+                    <div style={{ color:dark?"#444":"#999", fontSize:"11px", fontWeight:700, letterSpacing:"1.5px", textTransform:"uppercase" }}>Recent Attempts</div>
+                    <button onClick={() => setActiveSection("users")} style={{ background:"transparent", border:"none", color:"#555", fontSize:"11px", cursor:"pointer" }}>View all →</button>
+                  </div>
+                  {metricsLoading ? <div style={{ color:"#555", padding:"12px", textAlign:"center" }}>Loading…</div>
+                  : recentAttempts.length === 0 ? <div style={{ color:"#555", padding:"20px", textAlign:"center", fontSize:"13px" }}>No attempts yet.</div>
+                  : <div style={{ display:"flex", flexDirection:"column", gap:"6px" }}>
+                      {recentAttempts.map(a => {
+                        const pct = a.total_marks > 0 ? Math.round((a.score / a.total_marks) * 100) : 0;
+                        return (
+                          <div key={a.id} style={{ background:dark?"rgba(255,255,255,0.04)":"#fff", border:dark?"1px solid rgba(255,255,255,0.07)":"1px solid rgba(0,0,0,0.07)", borderRadius:"10px", padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px" }}>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ color:dark?"#ddd":"#111", fontSize:"12px", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.tests?.name || "Unknown Test"}</div>
+                              <div style={{ color:"#555", fontSize:"10px" }}>{new Date(a.created_at).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
+                            </div>
+                            <div style={{ flexShrink:0, textAlign:"right" }}>
+                              <div style={{ color:pct>=60?"#4ade80":pct>=40?"#fb923c":"#ff6b6b", fontWeight:800, fontSize:"14px" }}>{pct}%</div>
+                              <div style={{ color:"#555", fontSize:"10px" }}>{a.score}/{a.total_marks}</div>
                             </div>
                           </div>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                            <div style={{ textAlign: "right" }}>
-                              <div style={{ color: pct>=60?"#4ade80":pct>=40?"#fb923c":"#ff6b6b", fontWeight: 700, fontSize: "15px" }}>{pct}%</div>
-                              <div style={{ color: "#555", fontSize: "11px" }}>{a.score}/{a.total_marks}</div>
-                            </div>
-                            <div style={{ background: a.status==="completed"?"rgba(74,222,128,0.12)":"rgba(251,146,60,0.12)", border: a.status==="completed"?"1px solid rgba(74,222,128,0.3)":"1px solid rgba(251,146,60,0.3)", color: a.status==="completed"?"#4ade80":"#fb923c", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
-                              {a.status || "done"}
-                            </div>
+                        );
+                      })}
+                    </div>}
+                </div>
+
+                {/* Recent Signups */}
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+                    <div style={{ color:dark?"#444":"#999", fontSize:"11px", fontWeight:700, letterSpacing:"1.5px", textTransform:"uppercase" }}>Recent Signups</div>
+                    <button onClick={() => setActiveSection("users")} style={{ background:"transparent", border:"none", color:"#555", fontSize:"11px", cursor:"pointer" }}>View all →</button>
+                  </div>
+                  {metricsLoading ? <div style={{ color:"#555", padding:"12px", textAlign:"center" }}>Loading…</div>
+                  : recentUsers.length === 0 ? <div style={{ color:"#555", padding:"20px", textAlign:"center", fontSize:"13px" }}>No users yet.</div>
+                  : <div style={{ display:"flex", flexDirection:"column", gap:"6px" }}>
+                      {recentUsers.map(u => (
+                        <div key={u.id} style={{ background:dark?"rgba(255,255,255,0.04)":"#fff", border:dark?"1px solid rgba(255,255,255,0.07)":"1px solid rgba(0,0,0,0.07)", borderRadius:"10px", padding:"10px 14px", display:"flex", alignItems:"center", gap:"10px" }}>
+                          <div style={{ width:32, height:32, borderRadius:"50%", background:"linear-gradient(135deg,#818cf8,#6366f1)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:"13px", flexShrink:0 }}>{(u.full_name||"U").charAt(0).toUpperCase()}</div>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ color:dark?"#ddd":"#111", fontSize:"12px", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.full_name || <span style={{color:"#555"}}>No name</span>}</div>
+                            <div style={{ color:"#555", fontSize:"10px" }}>{u.state||"—"} {u.target_exam ? "· "+u.target_exam : ""} · {u.created_at ? new Date(u.created_at).toLocaleDateString("en-IN") : "—"}</div>
                           </div>
                         </div>
-                      );
-                    })}
-                    <button onClick={() => setActiveSection("users")} style={{ background: "transparent", border: dark?"1px solid rgba(255,255,255,0.1)":"1px solid rgba(0,0,0,0.1)", color: "#666", padding: "10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", marginTop: "4px" }}>View all users & attempts →</button>
-                  </div>
-                )}
+                      ))}
+                    </div>}
+                </div>
               </div>
             </div>
           )}
 
-          {activeSection === "questions"     && <AdminQuestions user={user} />}
-          {activeSection === "organizations" && <AdminOrganizations user={user} />}
-          {activeSection === "exams"         && <AdminExams user={user} />}
-          {activeSection === "users"         && <AdminUsers user={user} />}
+          {activeSection === "questions"     && user?.isAdmin && <AdminQuestions user={user} />}
+          {activeSection === "organizations" && user?.isAdmin && <AdminOrganizations user={user} />}
+          {activeSection === "exams"         && <AdminExams user={user} isMod={isMod} />}
+          {activeSection === "users"         && user?.isAdmin && <AdminUsers user={user} />}
+          {/* Moderator: show helpful message if they try to access admin-only section */}
+          {!user?.isAdmin && isMod && ["questions","organizations","users"].includes(activeSection) && (
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"80px 20px", textAlign:"center" }}>
+              <div style={{ fontSize:"3rem", marginBottom:"16px" }}>🔒</div>
+              <h3 style={{ color:"#ff6b6b", fontFamily:"'Sora',sans-serif", marginBottom:"8px" }}>Restricted Area</h3>
+              <p style={{ color:"#555", fontSize:"14px" }}>This section is available to admins only.</p>
+              <button onClick={() => setActiveSection("exams")} style={{ marginTop:"20px", background:"linear-gradient(135deg,#FFD700,#FF8C00)", border:"none", color:"#000", padding:"10px 24px", borderRadius:"8px", cursor:"pointer", fontWeight:700 }}>Go to Exams & Tests</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -4813,7 +5295,7 @@ export default function App() {
       return;
     }
 
-    if (accessToken && (type === "signup" || type === "magiclink")) {
+    if (accessToken && (type === "signup" || type === "magiclink" || type === "email_change")) {
       (async () => {
         try {
           const res = await fetch(SUPABASE_URL + "/auth/v1/user", {
@@ -4823,6 +5305,26 @@ export default function App() {
           if (userData?.id) {
             const sessionData = { access_token: accessToken, refresh_token: refreshToken, user: userData };
             sessionStorage.setItem("mm_session", JSON.stringify(sessionData));
+
+            // ── Save pending profile (name+state stored before email confirmation) ──
+            const pending = sessionStorage.getItem("mm_pending_profile");
+            if (pending && type === "signup") {
+              try {
+                const profile = JSON.parse(pending);
+                // Try PATCH first, then INSERT if no row exists yet
+                try {
+                  await supabaseRequest(`/profiles?id=eq.${userData.id}`, {
+                    method: "PATCH", body: profile, token: accessToken, prefer: "return=minimal"
+                  });
+                } catch {
+                  await supabaseRequest("/profiles", {
+                    method: "POST", body: { id: userData.id, ...profile }, token: accessToken, prefer: "return=minimal"
+                  });
+                }
+              } catch {}
+              sessionStorage.removeItem("mm_pending_profile");
+            }
+
             let isAdmin = false;
             try {
               const roles = await supabaseRequest("/roles?user_id=eq." + userData.id + "&select=role", { token: accessToken });
@@ -4832,7 +5334,7 @@ export default function App() {
             setUserPersist({ ...userData, token: accessToken, isAdmin });
             setPagePersist(isAdmin ? "admin" : "home");
           }
-        } catch {}
+        } catch(e) { console.error("Auth callback error:", e); }
       })();
       return;
     }
@@ -4993,6 +5495,7 @@ export default function App() {
           .mobile-menu-btn { display: block !important; }
           .question-grid-sidebar { display: none !important; }
           .admin-sidebar { display: none !important; }
+          .admin-mobile-nav { display: block !important; }
           .exam-sidebar { display: none !important; }
           .palette-btn-mobile { display: flex !important; }
           .mobile-bottom-nav { display: flex !important; }
@@ -5013,6 +5516,8 @@ export default function App() {
           .palette-btn-mobile { display: none !important; }
           .mobile-bottom-nav { display: none !important; }
           .exam-sidebar { display: block !important; }
+          .admin-mobile-nav { display: none !important; }
+          .admin-sidebar { display: block !important; }
         }
         @media (max-width: 480px) {
           .mobile-menu { display: flex !important; }
@@ -5022,6 +5527,7 @@ export default function App() {
           .results-stats { grid-template-columns: 1fr 1fr !important; }
           .section-tabs-bar button { padding: 8px 10px !important; font-size: 11px !important; }
           .admin-metric-grid { grid-template-columns: 1fr 1fr !important; }
+          .admin-two-col { grid-template-columns: 1fr !important; }
         }
         @media (min-width: 769px) { .mobile-menu { display: none !important; } }
         .admin-mobile-nav { display: none !important; }
@@ -5045,7 +5551,7 @@ export default function App() {
         {page === "exams"          && <ExamsPage setPage={setPagePersist} setActiveExam={setActiveExam} />}
         {page === "exam-detail"    && activeExam && <ExamDetailPage exam={activeExam} setPage={setPagePersist} setActiveTest={setActiveTest} user={user} />}
         {page === "auth"           && <AuthPage setPage={setPagePersist} onLogin={handleLogin} recoveryToken={recoveryToken} onRecoveryUsed={() => setRecoveryToken(null)} />}
-        {page === "dashboard"      && <DashboardPage user={user} setPage={setPagePersist} setActiveTest={setActiveTest} setActiveExam={setActiveExam} />}
+        {page === "dashboard"      && <DashboardPage user={user} setPage={setPagePersist} setActiveTest={setActiveTest} />}
         {page === "exam-interface" && <ExamInterface setPage={setPagePersist} setDark={setDark} activeTest={activeTest} />}
         {page === "pricing"        && <PricingPage setPage={setPagePersist} />}
         {page === "admin"          && <AdminPanel user={user} setPage={setPagePersist} />}
